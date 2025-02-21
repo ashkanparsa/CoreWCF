@@ -49,6 +49,7 @@ namespace CoreWCF.Channels
             KeepAliveEnabled = elementToBeCloned.KeepAliveEnabled;
             TransferMode = elementToBeCloned.TransferMode;
             WebSocketSettings = elementToBeCloned.WebSocketSettings.Clone();
+            AlwaysUseAuthorizationPolicySupport = elementToBeCloned.AlwaysUseAuthorizationPolicySupport;
         }
 
         // public bool AllowCookies { get { return default(bool); } set { } }
@@ -58,6 +59,12 @@ namespace CoreWCF.Channels
         /// </summary>
         /// <value>The authentication scheme.</value>
         public AuthenticationSchemes AuthenticationScheme { get; set; }
+
+        /// <summary>
+        /// Gets or sets the ASP.NET Core Authorization policy support
+        /// </summary>
+        /// <value>A value of true always uses it, a value of false means it might be used if implicitly turned on (InheritFromHost)</value>
+        public bool AlwaysUseAuthorizationPolicySupport { get; set; }
 
         // public System.Net.AuthenticationSchemes AuthenticationScheme { get { return default(System.Net.AuthenticationSchemes); } set { } }
 
@@ -91,7 +98,7 @@ namespace CoreWCF.Channels
                 if (value <= 0)
                 {
                     throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new ArgumentOutOfRangeException(nameof(value), value,
-                        SR.ValueMustBePositive));
+                        SRCommon.ValueMustBePositive));
                 }
 
                 _maxBufferSizeInitialized = true;
@@ -222,6 +229,19 @@ namespace CoreWCF.Channels
             {
                 return (T)(object)new HttpTransportServiceBuilder();
             }
+
+            if (typeof(T) == typeof(IAuthorizationCapabilities))
+            {
+                var binding = context.BindingParameters.Find<Binding>();
+                if (binding is not null)
+                {
+                    context.BindingParameters.Remove(binding);
+                    return (T)(object)new AuthorizationCapabilities(AlwaysUseAuthorizationPolicySupport);
+                }
+
+                return null;
+            }
+
             //else if (typeof(T) == typeof(ISecurityCapabilities))
             //{
             //    AuthenticationSchemes effectiveAuthenticationSchemes = HttpTransportBindingElement.GetEffectiveAuthenticationSchemes(this.AuthenticationScheme,

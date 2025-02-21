@@ -2,19 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Xml;
 using System.Collections;
-using System.Collections.Generic;
-using System.Reflection;
-using DataContractDictionary = System.Collections.Generic.Dictionary<System.Xml.XmlQualifiedName, object>;
 using System.Runtime.Serialization;
-using System.Globalization;
-using System.Runtime.CompilerServices;
+using System.Xml;
 
 namespace CoreWCF.Runtime.Serialization
 {
     internal class DataContractSetEx
     {
+        internal const string RemoveKeyValuePairFromWsdl = "CoreWCF.RemoveKeyValuePairFromWsdl";
+        internal bool _removeKeyValuePairFromWsdl = AppContext.TryGetSwitch(RemoveKeyValuePairFromWsdl, out bool enabled) && enabled;
+
         internal DataContractSetEx()
         {
             Wrapped = FormatterServices.GetUninitializedObject(s_dataContractSetType);
@@ -66,7 +64,7 @@ namespace CoreWCF.Runtime.Serialization
 
         internal void InternalAdd(XmlQualifiedName name, DataContractEx dataContract)
         {
-            DataContractEx? dataContractInSet;
+            DataContractEx dataContractInSet;
             if (Contracts.Contains(name))
             {
                 dataContractInSet = DataContractEx.Wrap(Contracts[name]);
@@ -160,16 +158,20 @@ namespace CoreWCF.Runtime.Serialization
                     var dataContract = DataContractEx.Wrap(knownDataContract);
                     // Workaround for DataContract adding an extra schema entry for KeyValue<K,V>. See GitHub
                     // issue https://github.com/dotnet/runtime/issues/67949 for details.
-                    if (!IsStableNameForKeyValuePair(dataContract.StableName))
-                    {
-                        Add(dataContract);
-                    }
+                    if (_removeKeyValuePairFromWsdl && IsKeyValuePair(dataContract))
+                        continue;
+
+                    Add(dataContract);
                 }
             }
         }
 
-        private bool IsStableNameForKeyValuePair(XmlQualifiedName stableName) => stableName.Namespace == "http://schemas.datacontract.org/2004/07/System.Collections.Generic"
-                                                                                    && stableName.Name.StartsWith("KeyValuePairOf");
+        private bool IsKeyValuePair(DataContractEx dataContract)
+        {
+            var stableName = dataContract.StableName;
+            return stableName.Namespace == "http://schemas.datacontract.org/2004/07/System.Collections.Generic"
+                                           && stableName.Name.StartsWith("KeyValuePairOf");
+        }
 
         internal DataContractEx GetMemberTypeDataContract(DataMemberEx dataMember)
         {
@@ -204,8 +206,13 @@ namespace CoreWCF.Runtime.Serialization
             return collectionContract.ItemContract;
         }
 
-        internal void FixupEnumDataContracts()
+        internal void FixupDataContracts()
         {
+            // This fixes the Enum data contract to have an underlying type
+            // and for collections of KeyValuePairAdapter to have IsValueType set to true
+            // and the key and value members to be required. This is done by ensuring all
+            // types get wrapped at least once. The wrapping constructor fixes up the
+            // necessary data.
             foreach(object contractObj in Contracts.Values)
             {
                 DataContractEx.Wrap(contractObj);

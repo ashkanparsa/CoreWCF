@@ -2,15 +2,46 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using CoreWCF.Channels;
 using CoreWCF.Description;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace CoreWCF.Dispatcher
 {
     public class OperationInvokerBehavior : IOperationBehavior
     {
+        private IServiceProvider _serviceProvider;
+
+        private static readonly Lazy<bool> s_isOperationInvokerGeneratorEnabled = new Lazy<bool>(() =>
+        {
+            if (AppContext.TryGetSwitch("CoreWCF.Dispatcher.UseGeneratedOperationInvokers", out var value))
+            {
+                return value;
+            }
+
+            Assembly entryAssembly = Assembly.GetEntryAssembly();
+            // return null when running UT with Xunit and .NET Framework
+            if (entryAssembly != null)
+            {
+                var assemblyAttributeArgsData = entryAssembly
+                    .GetCustomAttributesData()
+                    .Where(static data => data.AttributeType == typeof(EnableCoreWCFOperationInvokerGeneratorAttribute))
+                    .SelectMany(static data => data.ConstructorArguments)
+                    .Where(static data => data.ArgumentType == typeof(bool))
+                    .ToList();
+
+                return assemblyAttributeArgsData.Count > 0 && assemblyAttributeArgsData[0].Value is true;
+            }
+
+            return false;
+        });
+
         public OperationInvokerBehavior()
         {
+
         }
 
         void IOperationBehavior.Validate(OperationDescription description)
@@ -19,6 +50,7 @@ namespace CoreWCF.Dispatcher
 
         void IOperationBehavior.AddBindingParameters(OperationDescription description, BindingParameterCollection parameters)
         {
+            _serviceProvider = parameters.Find<IServiceProvider>();
         }
 
         void IOperationBehavior.ApplyDispatchBehavior(OperationDescription description, DispatchOperation dispatch)
@@ -34,27 +66,60 @@ namespace CoreWCF.Dispatcher
 
             if (description.TaskMethod != null)
             {
-                dispatch.Invoker = new TaskMethodInvoker(description.TaskMethod, description.TaskTResult);
-            }
-            else if (description.SyncMethod != null)
-            {
-                if (description.BeginMethod != null)
+                if (s_isOperationInvokerGeneratorEnabled.Value)
                 {
-                    // both sync and async methods are present on the contract, check the preference
-                    //OperationBehaviorAttribute operationBehaviorAttribute = description.Behaviors.Find<OperationBehaviorAttribute>();
-                    //if ((operationBehaviorAttribute != null) && operationBehaviorAttribute.PreferAsyncInvocation)
-                    //{
-                    //    dispatch.Invoker = new AsyncMethodInvoker(description.BeginMethod, description.EndMethod);
-                    //}
-                    //else
-                    //{
-                    dispatch.Invoker = new SyncMethodInvoker(description.SyncMethod);
-                    //}
+                    if (DispatchOperationRuntimeHelpers.OperationInvokers.TryGetValue(DispatchOperationRuntimeHelpers.GetKey(description.TaskMethod), out IOperationInvoker invoker))
+                    {
+                        dispatch.Invoker = invoker;
+                    }
+                    else
+                    {
+                        // reaching this point means that the operation invoker generator is enabled but we did not succeed to fetch the invoker
+                        // for the operation. This is a bug in the DispatchOperationRuntimeHelpers.GetKey logic.
+                        throw new PlatformNotSupportedException();
+                    }
                 }
                 else
                 {
-                    // only sync method is present on the contract
-                    dispatch.Invoker = new SyncMethodInvoker(description.SyncMethod);
+                    dispatch.Invoker = new TaskMethodInvoker(_serviceProvider, description.TaskMethod, description.TaskTResult);
+                }
+
+            }
+            else if (description.SyncMethod != null)
+            {
+                if (s_isOperationInvokerGeneratorEnabled.Value)
+                {
+                    if (DispatchOperationRuntimeHelpers.OperationInvokers.TryGetValue(DispatchOperationRuntimeHelpers.GetKey(description.SyncMethod), out IOperationInvoker invoker))
+                    {
+                        dispatch.Invoker = invoker;
+                    }
+                    else
+                    {
+                        // reaching this point means that the operation invoker generator is enabled but we did not succeed to fetch the invoker
+                        // for the operation. This is a bug in the DispatchOperationRuntimeHelpers.GetKey logic.
+                        throw new PlatformNotSupportedException();
+                    }
+                }
+                else
+                {
+                    if (description.BeginMethod != null)
+                    {
+                        // both sync and async methods are present on the contract, check the preference
+                        //OperationBehaviorAttribute operationBehaviorAttribute = description.Behaviors.Find<OperationBehaviorAttribute>();
+                        //if ((operationBehaviorAttribute != null) && operationBehaviorAttribute.PreferAsyncInvocation)
+                        //{
+                        //    dispatch.Invoker = new AsyncMethodInvoker(description.BeginMethod, description.EndMethod);
+                        //}
+                        //else
+                        //{
+                        dispatch.Invoker = new SyncMethodInvoker(_serviceProvider, description.SyncMethod);
+                        //}
+                    }
+                    else
+                    {
+                        // only sync method is present on the contract
+                        dispatch.Invoker = new SyncMethodInvoker(_serviceProvider, description.SyncMethod);
+                    }
                 }
             }
             else

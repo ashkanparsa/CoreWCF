@@ -12,7 +12,7 @@ The primary development branch is main. New feature development will occur on a 
 
 ## Versioning Strategy
 
-Core WCF will use a \<Major\>.\<Minor\> versioning scheme. Releases will happen when features are completed and not aligned to a specific timetable.
+CoreWCF will use a \<Major\>.\<Minor\> versioning scheme. Releases will happen when features are completed and not aligned to a specific timetable.
 
 ### Major Releases
 
@@ -32,13 +32,13 @@ When work starts on new major versions, that are not going to be 100% compatible
 
 ### .NET Versions
 
-Support for specific versions of the .NET runtime in Core WCF will be timeboxed by the support durations for those runtimes by Microsoft. For example .NET 5 will be supported until May 8 2022 (based on dates from [here](https://docs.microsoft.com/en-us/lifecycle/products/microsoft-net-and-net-core)). 
+Support for specific versions of the .NET runtime in CoreWCF will be timeboxed by the support durations for those runtimes by Microsoft. For example .NET 5 will be supported until May 8 2022 (based on dates from [here](https://docs.microsoft.com/en-us/lifecycle/products/microsoft-net-and-net-core)). 
 
-For engineering reasons, major releases of CoreWCF may drop support for older versions of .NET runtime. This is so that Core WCF can take advanatge of runtime features that are not present in the older runtime. For example, the current plan is that shortly after 1.0 is shippped, work will start on 2.0 which will drop .NET Framework and .NET Core 3.1 support, this is because we need to take a dependency on newer ASP.NET core features that are not available down level.
+For engineering reasons, major releases of CoreWCF may drop support for older versions of .NET runtime. This is so that CoreWCF can take advanatge of runtime features that are not present in the older runtime. For example, the current plan is that shortly after 1.0 is shippped, work will start on 2.0 which will drop .NET Framework and .NET Core 3.1 support, this is because we need to take a dependency on newer ASP.NET core features that are not available down level.
 
 ## Microsoft support
 
-We recognize how important support is to enterprise customers, and so we are pleased to announce that Microsoft Product Support will be available for Core WCF customers.
+We recognize how important support is to enterprise customers, and so we are pleased to announce that Microsoft Product Support will be available for CoreWCF customers.
   
 - The following packages will be supported:
   - [CoreWCF.Primitives](https://www.nuget.org/packages/CoreWCF.Primitives)
@@ -66,6 +66,23 @@ Security issues should be reported via email to security@corewcf.net as describe
 Here are the steps to release a new version:
 
 1. Update to the latest patch version of nuget dependencies
+
+   ```dos
+       dotnet tool install --global dotnet-outdated-tool
+       dotnet outdated -u -vl Minor -inc Microsoft.AspNetCore -inc Microsoft.CodeAnalysis -inc System CoreWCF.sln
+       dotnet outdated -u -inc Microsoft.NET CoreWCF.sln
+       dotnet outdated -u -vl Major -inc Microsoft.IdentityModel CoreWCF.sln
+       dotnet outdated -u -exc Microsoft -exc Nerdbank.GitVersioning -exc System -exc RabbitMQ CoreWCF.sln
+   ```
+
+   Check and manually update the version of `Nerdbank.GitVersioning` if needed. The version is specified in [Directory.Build.props](/Directory.Build.props).
+
+   ```dos
+       dotnet outdated -inc Nerdbank.GitVersioning CoreWCF.sln
+   ```
+
+   Check the pending changes to make sure the package version updated have been applied correctly.
+
 2. Update the CoreWCF.BuildTools AnalyzerReleases markdown documents if new analyzer rules have been created. Instructions for what changes may need to be made are located [here](https://github.com/dotnet/roslyn-analyzers/blob/main/src/Microsoft.CodeAnalysis.Analyzers/ReleaseTrackingAnalyzers.Help.md).
 3. If any changes were made in steps 1 & 2, create a branch, commit the changes, push to your fork, create a PR and merge the changes. Update your local main branch after the PR has been merged.
 4. Install Nerdbank.GitVersioning
@@ -82,9 +99,17 @@ Here are the steps to release a new version:
 
    This creates the release/vX.Y release branch and updates the main branch to use the vX.(Y+1) version.
 
-6. Push the main and release/vX.Y branches to GitHub so it reflects the changes made by NerdBank GitVersion.
-7. Stabilization occurs in the release branch.
-8. Commits should be made in the main branch and are cherry-picked into release/vX.Y if needed.
-9. Build release packages and tag vX.Y.Z from the release/vX.Y branch.
-10. Push package and symbol package to NuGet.
-11. Delete the release/vX.Y branch.
+6. Update the version.json file for any preview packages to match the main version.json file. As of January 2025 this is only the NetNamedPipe project, but that should change in the future. Search for any version.json files to be certain.
+
+7. Push the main and release/vX.Y branches to GitHub so it reflects the changes made by NerdBank GitVersion.
+8. Stabilization occurs in the release branch.
+9. Commits should be made in the main branch and are cherry-picked into release/vX.Y if needed.
+10. Build release packages and tag vX.Y.Z from the release/vX.Y branch.
+
+   ```dos
+       git tag -a -m "CoreWCF vX.Y.Z" vX.Y.Z
+       git push upstream tag vX.Y.Z
+   ```
+
+11. Push package and symbol package to NuGet.
+12. Delete the release/vX.Y branch.

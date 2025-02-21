@@ -39,6 +39,7 @@ namespace CoreWCF.Dispatcher
             _messageInspectors = EmptyArray<IDispatchMessageInspector>.ToArray(dispatch.MessageInspectors);
             SecurityImpersonation = SecurityImpersonationBehavior.CreateIfNecessary(dispatch);
             RequireClaimsPrincipalOnOperationContext = dispatch.RequireClaimsPrincipalOnOperationContext;
+            SupportsAuthorizationData = dispatch.SupportsAuthorizationData;
             IsImpersonationEnabledOnSerializingReply = dispatch.ImpersonateOnSerializingReply;
             _terminate = TerminatingOperationBehavior.CreateIfNecessary(dispatch);
             _thread = new ThreadBehavior(dispatch);
@@ -94,6 +95,8 @@ namespace CoreWCF.Dispatcher
         internal bool IsImpersonationEnabledOnSerializingReply { get; }
 
         internal bool RequireClaimsPrincipalOnOperationContext { get; }
+
+        internal bool SupportsAuthorizationData { get; }
 
         internal bool ManualAddressing { get; }
 
@@ -358,7 +361,7 @@ namespace CoreWCF.Dispatcher
             }
         }
 
-        private void PrepareReply(MessageRpc rpc)
+        private async ValueTask PrepareReplyAsync(MessageRpc rpc)
         {
             RequestContext context = rpc.OperationContext.RequestContext;
             Exception exception = null;
@@ -440,7 +443,7 @@ namespace CoreWCF.Dispatcher
             }
             else if ((exception != null) && thereIsAnUnhandledException)
             {
-                rpc.Abort();
+                await rpc.AbortAsync();
             }
         }
 
@@ -475,8 +478,17 @@ namespace CoreWCF.Dispatcher
             return _demuxer.GetOperation(ref message);
         }
 
+        private void ReceiveContextRPCFacet_CreatIfRequired_Shim(MessageRpc rpc)
+        {
+            rpc.ReceiveContext = ReceiveContext.TryGet(rpc.Request, out ReceiveContext receiveContext)
+                ? receiveContext
+                : null;
+        }
+
         internal async Task<MessageRpc> ProcessMessageAsync(MessageRpc rpc)
         {
+            ReceiveContextRPCFacet_CreatIfRequired_Shim(rpc);
+
             if (rpc.Operation.IsOneWay)
             {
                 await rpc.RequestContext.ReplyAsync(null);
@@ -545,16 +557,14 @@ namespace CoreWCF.Dispatcher
                 rpc.SuccessfullyIncrementedActivity = true;
             }
 
-            // TODO: Make authenticationBehavior Async
             if (_authenticationBehavior != null)
             {
-                _authenticationBehavior.Authenticate(ref rpc);
+                rpc = await _authenticationBehavior.AuthenticateAsync(rpc);
             }
 
-            // TODO: Make authorizationBehavior Async
-            if (_authorizationBehavior != null)
+            if (_authorizationBehavior != null && !SupportsAuthorizationData)
             {
-                _authorizationBehavior.Authorize(ref rpc);
+                rpc = await _authorizationBehavior.AuthorizeAsync(rpc);
             }
 
             await InstanceBehavior.EnsureInstanceContextAsync(rpc);
@@ -603,6 +613,16 @@ namespace CoreWCF.Dispatcher
             }
 
             InstanceBehavior.EnsureServiceInstance(rpc);
+
+            if (RequireClaimsPrincipalOnOperationContext)
+            {
+                rpc.Operation.SetClaimsPrincipalToOperationContext(rpc);
+            }
+
+            if (_authorizationBehavior != null && SupportsAuthorizationData)
+            {
+                rpc = await _authorizationBehavior.AuthorizePolicyAsync(rpc);
+            }
 
             try
             {
@@ -656,7 +676,7 @@ namespace CoreWCF.Dispatcher
                 ErrorBehavior.HandleError(e);
             }
 
-            PrepareReply(rpc);
+            await PrepareReplyAsync(rpc);
 
             if (rpc.CanSendReply)
             {
@@ -669,7 +689,7 @@ namespace CoreWCF.Dispatcher
                 await ReplyAsync(rpc);
             }
 
-            ProcessMessageCleanup(rpc);
+            await ProcessMessageCleanupAsync(rpc);
         }
 
         // Logic for knowing when to close stuff:
@@ -708,7 +728,7 @@ namespace CoreWCF.Dispatcher
         // message was consumed after deserializing but before calling
         // the user.  This is stored as rpc.DidDeserializeRequestBody.
         //
-        private void ProcessMessageCleanup(MessageRpc rpc)
+        private async Task ProcessMessageCleanupAsync(MessageRpc rpc)
         {
             Fx.Assert(
                 !ReferenceEquals(rpc.ErrorProcessor, _processMessageCleanupError),
@@ -746,13 +766,13 @@ namespace CoreWCF.Dispatcher
                 {
                     if (!replyWasSent)
                     {
-                        rpc.AbortRequestContext();
+                        await rpc.AbortRequestContextAsync();
                         rpc.AbortChannel();
                     }
                     else
                     {
-                        rpc.CloseRequestContext();
-                        rpc.CloseChannel();
+                        await rpc.CloseRequestContextAsync();
+                        await rpc.CloseChannelAsync();
                     }
                     rpc.AbortInstanceContext();
                 }
@@ -760,11 +780,11 @@ namespace CoreWCF.Dispatcher
                 {
                     if (rpc.RequestContextThrewOnReply)
                     {
-                        rpc.AbortRequestContext();
+                        await rpc.AbortRequestContextAsync();
                     }
                     else
                     {
-                        rpc.CloseRequestContext();
+                        await rpc.CloseRequestContextAsync();
                     }
                 }
 
@@ -857,7 +877,7 @@ namespace CoreWCF.Dispatcher
                 {
                     try
                     {
-                        rpc.Channel.DecrementActivity();
+                        await rpc.Channel.DecrementActivityAsync();
                     }
                     catch (Exception e)
                     {
@@ -886,7 +906,7 @@ namespace CoreWCF.Dispatcher
             ErrorBehavior.HandleError(rpc);
         }
 
-        private Task ProcessMessageNonCleanupError(MessageRpc rpc)
+        private async Task ProcessMessageNonCleanupError(MessageRpc rpc)
         {
             try
             {
@@ -902,8 +922,7 @@ namespace CoreWCF.Dispatcher
                 ErrorBehavior.HandleError(e);
             }
 
-            PrepareReply(rpc);
-            return Task.CompletedTask;
+            await PrepareReplyAsync(rpc);
         }
 
         private Task ProcessMessageCleanupError(MessageRpc rpc)

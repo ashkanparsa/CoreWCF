@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>$(TestTargetFrameworks)</TargetFrameworks>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)'=='net472'">
+    <Compile Remove="**\*.cs" />
+    <Compile Remove="*.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)'=='net472'">
+    <PackageReference Include="Microsoft.AspNetCore" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)'!='net472'">
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RabbitMQ.Client" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)'!='net472'">
+    <ProjectReference Include="$(SourceDir)CoreWCF.RabbitMQ.Client\src\CoreWCF.RabbitMQ.Client.csproj" />
+    <ProjectReference Include="..\src\CoreWCF.RabbitMQ.csproj" />
+  </ItemGroup>
+
+</Project>

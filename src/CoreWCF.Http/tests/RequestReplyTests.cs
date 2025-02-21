@@ -8,6 +8,7 @@ using CoreWCF.Configuration;
 using Helpers;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Services;
 using Xunit;
@@ -31,7 +32,16 @@ namespace CoreWCF.Http.Tests
         public void RequestReplyStreaming(string binding)
         {
             Startup.binding = binding;
-            IWebHost host = ServiceHelper.CreateWebHostBuilder<Startup>(_output).Build();
+            var hostBuilder = ServiceHelper.CreateWebHostBuilder<Startup>(_output);
+            hostBuilder.ConfigureServices(services =>
+            {
+                services.Configure<KestrelServerOptions>(options =>
+                {
+                    options.AllowSynchronousIO = true;
+                });
+            });
+
+            IWebHost host = hostBuilder.Build();
             using (host)
             {
                 host.Start();
@@ -40,7 +50,7 @@ namespace CoreWCF.Http.Tests
                 {
                     case "Http1Binding":
                         channelFactory = new System.ServiceModel.ChannelFactory<ClientContract.IStream>(ClientHelper.GetBufferedModHttp1Binding(),
-                      new System.ServiceModel.EndpointAddress(new Uri("http://localhost:8080/BasicWcfService1/RequestReplyTests.svc")));
+                      new System.ServiceModel.EndpointAddress(new Uri($"http://localhost:{host.GetHttpPort()}/BasicWcfService1/RequestReplyTests.svc")));
                         break;
                     //case "Http2Binding":
                     //    channelFactory = new System.ServiceModel.ChannelFactory<ClientContract.IStream>(ClientHelper.GetBufferedModHttp2Binding(),

@@ -33,11 +33,11 @@ namespace CoreWCF.Http.Tests
                 host.Start();
                 System.ServiceModel.BasicHttpBinding httpBinding = ClientHelper.GetBufferedModeBinding();
                 var factory = new System.ServiceModel.ChannelFactory<ClientContract.ITestFaultOpContract>(httpBinding,
-                    new System.ServiceModel.EndpointAddress(new Uri("http://localhost:8080/BasicWcfService/FaultOnDiffContractsAndOpsService.svc")));
+                    new System.ServiceModel.EndpointAddress(new Uri($"http://localhost:{host.GetHttpPort()}/BasicWcfService/FaultOnDiffContractsAndOpsService.svc")));
                 ClientContract.ITestFaultOpContract channel = factory.CreateChannel();
 
                 var factory2 = new System.ServiceModel.ChannelFactory<ClientContract.ITestFaultOpContractTypedClient>(httpBinding,
-                    new System.ServiceModel.EndpointAddress(new Uri("http://localhost:8080/BasicWcfService/FaultOnDiffContractsAndOpsService.svc")));
+                    new System.ServiceModel.EndpointAddress(new Uri($"http://localhost:{host.GetHttpPort()}/BasicWcfService/FaultOnDiffContractsAndOpsService.svc")));
                 ClientContract.ITestFaultOpContractTypedClient channel2 = factory2.CreateChannel();
 
                 //test variations count
@@ -197,11 +197,11 @@ namespace CoreWCF.Http.Tests
                 host.Start();
                 System.ServiceModel.BasicHttpBinding httpBinding = ClientHelper.GetBufferedModeBinding();
                 var factory = new System.ServiceModel.ChannelFactory<ClientContract.ITestDataContractFault>(httpBinding,
-                    new System.ServiceModel.EndpointAddress(new Uri("http://localhost:8080/BasicWcfService/DatacontractFaults.svc")));
+                    new System.ServiceModel.EndpointAddress(new Uri($"http://localhost:{host.GetHttpPort()}/BasicWcfService/DatacontractFaults.svc")));
                 ClientContract.ITestDataContractFault channel = factory.CreateChannel();
 
                 var factory2 = new System.ServiceModel.ChannelFactory<ClientContract.ITestDataContractFaultTypedClient>(httpBinding,
-                    new System.ServiceModel.EndpointAddress(new Uri("http://localhost:8080/BasicWcfService/DatacontractFaults.svc")));
+                    new System.ServiceModel.EndpointAddress(new Uri($"http://localhost:{host.GetHttpPort()}/BasicWcfService/DatacontractFaults.svc")));
                 ClientContract.ITestDataContractFaultTypedClient channel2 = factory2.CreateChannel();
 
                 //test variations
@@ -239,7 +239,7 @@ namespace CoreWCF.Http.Tests
                     Stream outputStream = channel.TwoWayStream_Method(inputStream);
                     StreamReader sr = new StreamReader(outputStream, Encoding.UTF8);
                     string outputText = sr.ReadToEnd();
-                    Assert.False(true, $"Error, Received Input: {outputText}");
+                    Assert.Fail($"Error, Received Input: {outputText}");
                 }
                 catch (Exception e)
                 {
@@ -250,7 +250,7 @@ namespace CoreWCF.Http.Tests
                 try
                 {
                     string response = channel.TwoWayAsync_Method(f).GetAwaiter().GetResult();
-                    Assert.False(true, $"Error, Client received: {response}");
+                    Assert.Fail($"Error, Client received: {response}");
                 }
                 catch (Exception e)
                 {
@@ -266,7 +266,7 @@ namespace CoreWCF.Http.Tests
                         Name = f
                     };
                     ClientContract.FaultMsgContract fmcResult = channel.MessageContract_Method(fmc);
-                    Assert.False(true, $"Error, Client received: {fmcResult.Name}");
+                    Assert.Fail($"Error, Client received: {fmcResult.Name}");
                 }
                 catch (Exception e)
                 {

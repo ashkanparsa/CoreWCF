@@ -2,15 +2,23 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Security.Authentication.ExtendedProtection;
+using System.Security.Claims;
+using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
+using CoreWCF.IdentityModel;
+using CoreWCF.IdentityModel.Policy;
+using CoreWCF.IdentityModel.Selectors;
+using CoreWCF.IdentityModel.Tokens;
 using CoreWCF.Runtime;
 using CoreWCF.Security;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 
 namespace CoreWCF.Channels
@@ -99,7 +107,7 @@ namespace CoreWCF.Channels
             return new AspNetCoreHttpContext(settings, httpContext);
         }
 
-        protected abstract SecurityMessageProperty OnProcessAuthentication();
+        protected abstract Task<SecurityMessageProperty> OnProcessAuthenticationAsync();
 
         public abstract HttpOutput GetHttpOutput(Message message);
 
@@ -183,7 +191,7 @@ namespace CoreWCF.Channels
             if (message == null)
             {
                 // A null message means either a one-way request or that the service operation returned null and
-                // hence we can close the HttpOutput. By default we keep the HttpOutput open to allow the writing to the output 
+                // hence we can close the HttpOutput. By default we keep the HttpOutput open to allow the writing to the output
                 // even after the HttpInput EOF is received and the HttpOutput will be closed only on close of the HttpRequestContext.
                 closeOnReceivedEof = true;
                 message = CreateAckMessage(HttpStatusCode.Accepted, string.Empty);
@@ -259,7 +267,7 @@ namespace CoreWCF.Channels
                 statusCode = HttpStatusCode.Forbidden;
                 try
                 {
-                    _securityProperty = OnProcessAuthentication();
+                    _securityProperty = await OnProcessAuthenticationAsync();
                     authenticationSucceeded = true;
                     return true;
                 }
@@ -352,6 +360,7 @@ namespace CoreWCF.Channels
             {
                 return new AspNetCoreHttpInput(this);
             }
+
             public override HttpOutput GetHttpOutput(Message message)
             {
                 if (StringComparer.OrdinalIgnoreCase.Equals(Http11ProtocolString, _aspNetContext.Request.Protocol))
@@ -375,16 +384,30 @@ namespace CoreWCF.Channels
                 return HttpOutput.CreateHttpOutput(_aspNetContext, HttpTransportSettings, message, HttpMethod);
             }
 
-            protected override SecurityMessageProperty OnProcessAuthentication()
+            protected override async Task<SecurityMessageProperty> OnProcessAuthenticationAsync()
             {
-                // TODO: Wire up authentication for ASP.Net Core
-                //return Listener.ProcessAuthentication(listenerContext);
+                if (HttpTransportSettings.IsAuthenticationRequired)
+                {
+                    ServiceSecurityContext securityContext = await CreateSecurityContextAsync(_aspNetContext.User);
+                    SecurityMessageProperty securityMessageProperty = new()
+                    {
+                        ServiceSecurityContext = securityContext
+                    };
+                    return securityMessageProperty;
+                }
+
                 return null;
             }
 
             protected override HttpStatusCode ValidateAuthentication()
             {
-                // TODO: Wire up authentication for ASP.Net Core
+                if (HttpTransportSettings.IsAuthenticationRequired)
+                {
+                    return _aspNetContext.User.Identity.IsAuthenticated
+                        ? HttpStatusCode.OK
+                        : HttpStatusCode.Unauthorized;
+                }
+
                 return HttpStatusCode.OK;
                 //return Listener.ValidateAuthentication(listenerContext);
             }
@@ -411,22 +434,52 @@ namespace CoreWCF.Channels
                 //}
             }
 
+            private async Task<ServiceSecurityContext> CreateSecurityContextAsync(IPrincipal principal)
+            {
+                if (principal.Identity is WindowsIdentity wid)
+                {
+                    WindowsSecurityTokenAuthenticator tokenAuthenticator = new WindowsSecurityTokenAuthenticator();
+                    SecurityToken windowsToken = new WindowsSecurityToken(wid);
+                    ReadOnlyCollection<IAuthorizationPolicy> authorizationPolicies = await tokenAuthenticator.ValidateTokenAsync(windowsToken);
+                    return new ServiceSecurityContext(authorizationPolicies);
+                }
+                else if (principal.Identity is GenericIdentity gid)
+                {
+                    WindowsSecurityTokenAuthenticator tokenAuthenticator = new WindowsSecurityTokenAuthenticator();
+                    SecurityToken genericToken = new GenericIdentitySecurityToken(gid, SecurityUniqueId.Create().Value);
+                    ReadOnlyCollection<IAuthorizationPolicy> authorizationPolicies = await tokenAuthenticator.ValidateTokenAsync(genericToken);
+                    return new ServiceSecurityContext(authorizationPolicies);
+                }
+                else if (principal.Identity is ClaimsIdentity)
+                {
+                    AuthorizationContext authorizationContext = AuthorizationContext.CreateDefaultAuthorizationContext(null);
+                    authorizationContext.Properties.Add(nameof(ClaimsPrincipal), principal);
+                    return new ServiceSecurityContext(authorizationContext);
+                }
+
+                return null;
+            }
+
             private class AspNetCoreHttpInput : HttpInput
             {
                 private readonly AspNetCoreHttpContext _aspNetCoreHttpContext;
                 private string _cachedContentType; // accessing the header in System.Net involves a native transition
-                private readonly byte[] _preReadBuffer;
+                private byte[] _preReadBuffer;
 
                 // TODO: ChannelBindingSupport
                 public AspNetCoreHttpInput(AspNetCoreHttpContext aspNetCoreHttpContext)
                     : base(aspNetCoreHttpContext.HttpTransportSettings, true, false /* ChannelBindingSupportEnabled */)
                 {
                     _aspNetCoreHttpContext = aspNetCoreHttpContext;
+                }
+
+                protected override async Task CheckForContentAsync()
+                {
                     if (!_aspNetCoreHttpContext._aspNetContext.Request.ContentLength.HasValue)
                     {
-                        // TODO: Look into useing PipeReader with look-ahead
                         _preReadBuffer = new byte[1];
-                        if (_aspNetCoreHttpContext._aspNetContext.Request.Body.Read(_preReadBuffer, 0, 1) == 0)
+                        // TODO: Look into useing PipeReader with look-ahead
+                        if (await _aspNetCoreHttpContext._aspNetContext.Request.Body.ReadAsync(_preReadBuffer, 0, 1) == 0)
                         {
                             _preReadBuffer = null;
                         }

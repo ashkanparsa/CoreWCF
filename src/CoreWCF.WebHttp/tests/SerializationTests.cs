@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Net;
 using System.Threading.Tasks;
 using CoreWCF.Configuration;
-using CoreWCF.Description;
 using Helpers;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -31,10 +30,10 @@ namespace CoreWCF.WebHttp.Tests
             IWebHost host = ServiceHelper.CreateWebHostBuilder<Startup>(_output).Build();
             using (host)
             {
-                host.Start();
+                await host.StartAsync();
 
                 ServiceContract.SerializationData requestData = GetRequestData();
-                (HttpStatusCode statusCode, string content) = await HttpHelpers.PostJsonAsync("api/json", requestData);
+                (HttpStatusCode statusCode, string content) = await HttpHelpers.PostJsonAsync(host.GetHttpBaseAddressUri(), "api/json", requestData);
                 ServiceContract.SerializationData responseData = SerializationHelpers.DeserializeJson<ServiceContract.SerializationData>(content);
 
                 VerifyResponseData(statusCode, responseData);
@@ -47,13 +46,31 @@ namespace CoreWCF.WebHttp.Tests
             IWebHost host = ServiceHelper.CreateWebHostBuilder<Startup>(_output).Build();
             using (host)
             {
-                host.Start();
+                await host.StartAsync();
 
                 ServiceContract.SerializationData requestData = GetRequestData();
-                (HttpStatusCode statusCode, string content) = await HttpHelpers.PostXmlAsync("api/xml", requestData);
+                (HttpStatusCode statusCode, string content) = await HttpHelpers.PostXmlAsync(host.GetHttpBaseAddressUri(), "api/xml", requestData);
                 ServiceContract.SerializationData responseData = SerializationHelpers.DeserializeXml<ServiceContract.SerializationData>(content);
 
                 VerifyResponseData(statusCode, responseData);
+            }
+        }
+
+        [Fact]
+        public async Task SerializeDeserializeRaw()
+        {
+            IWebHost host = ServiceHelper.CreateWebHostBuilder<Startup>(_output).Build();
+            using (host)
+            {
+                await host.StartAsync();
+
+                byte[] order = new byte[100];
+                Random rndGen = new();
+                rndGen.NextBytes(order);
+                (HttpStatusCode statusCode, byte[] content) = await HttpHelpers.PostRawAsync(host.GetHttpBaseAddressUri(), "api/raw", order);
+
+                Assert.Equal(order, content);
+                Assert.Equal(HttpStatusCode.OK, statusCode);
             }
         }
 
@@ -70,7 +87,12 @@ namespace CoreWCF.WebHttp.Tests
                     TimeSpanField = TimeSpan.FromMilliseconds(10),
                     DateTimeOffsetField = new DateTimeOffset(new DateTime(2022, 02, 02)),
                     GuidField = new Guid("166d37d2-e712-4233-96e7-8cd1d40e9da2"),
-                    UriField = new Uri("http://microsoft.com")
+                    UriField = new Uri("http://microsoft.com"),
+                    MultiTypeListField = new List<ServiceContract.BaseClass>()
+                    {
+                        new ServiceContract.BaseClass() { StringField = "base" },
+                        new ServiceContract.DerivedClass() { StringField = "derived", NumericField = 2 }
+                    }
                 }
             }
         };
@@ -87,6 +109,12 @@ namespace CoreWCF.WebHttp.Tests
             Assert.Equal(new DateTimeOffset(new DateTime(2022, 02, 02)), responseDatum.DateTimeOffsetField);
             Assert.Equal(new Guid("166d37d2-e712-4233-96e7-8cd1d40e9da2"), responseDatum.GuidField);
             Assert.Equal(new Uri("http://microsoft.com"), responseDatum.UriField);
+            Assert.Equal(2, responseDatum.MultiTypeListField.Count);
+            Assert.IsType<ServiceContract.BaseClass>(responseDatum.MultiTypeListField[0]);
+            Assert.IsType<ServiceContract.DerivedClass>(responseDatum.MultiTypeListField[1]);
+            Assert.Equal("base", responseDatum.MultiTypeListField[0].StringField);
+            Assert.Equal("derived", responseDatum.MultiTypeListField[1].StringField);
+            Assert.Equal(2, ((ServiceContract.DerivedClass)responseDatum.MultiTypeListField[1]).NumericField);
         }
 
         internal class Startup

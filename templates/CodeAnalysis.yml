@@ -1,7 +1,7 @@
 parameters:
 - name: testProjects
   default: ''
-- name: solution
+- name: solutions
   default: ''
 
 stages:
@@ -11,23 +11,33 @@ stages:
   jobs:
 
   - job: Code_Analysis
-    displayName: SonarCloud & CodeCoverage reports 
+    displayName: SonarCloud & CodeCoverage reports
     pool:
       vmImage: 'ubuntu-latest'
     steps:
+    - bash: |
+        echo 'Starting docker services...'
+        docker compose up -d awaiter
+      name: DockerComposeLinuxServices
+      displayName: Start services hosted by linux containers
+      timeoutInMinutes: 5
+      retryCountOnTaskFailure: 2
 
     - task: UseDotNet@2
-      displayName: 'Use .NET Core 6 sdk'
+      displayName: 'Use .NET 9 sdk'
       inputs:
         packageType: sdk
-        version: '6.0.x'
+        version: '9.0.x'
+        includePreviewVersions: true
         installationPath: $(Agent.ToolsDirectory)/dotnet
 
     - task: DotNetCoreCLI@2
       displayName: Restore packages
       inputs:
         command: restore
-        projects: src/CoreWCF.sln
+        feedsToUse: config
+        nugetConfigPath: NuGet.config
+        projects: ${{ parameters.solutions }}
 
     - task: SonarCloudPrepare@1
       displayName: 'Prepare analysis on SonarCloud'
@@ -46,16 +56,16 @@ stages:
       displayName: Build
       inputs:
         command: build
-        projects: ${{ parameters.solution }}
+        projects: ${{ parameters.solutions }}
         arguments: '--no-restore -c Release'
 
     - task: DotNetCoreCLI@2
       displayName: Run tests with Coverage
-      timeoutInMinutes: 10
+      timeoutInMinutes: 40
       inputs:
         command: test
-        projects: ${{ parameters.testProjects}}
-        arguments: '--no-restore --no-build -c Release -f net6.0 --filter Category!=WindowsOnly --collect:"XPlat Code Coverage" --settings coverlet.runsettings'
+        projects: ${{ parameters.testProjects }}
+        arguments: '--no-restore --no-build -c Release -f net9.0 --collect:"XPlat Code Coverage" --settings coverlet.runsettings'
 
     - task: PublishCodeCoverageResults@1
       displayName: Publish Code Coverage report
@@ -72,3 +82,10 @@ stages:
       inputs:
         pollingTimeoutSec: '300'
       condition: not(eq(variables['build.reason'], 'PullRequest'))
+    - bash: |
+        echo 'Cleaning up docker services...'
+        docker compose down --rmi all
+      name: DockerComposeDownLinuxServices
+      displayName: Clean up containers used to host services
+      timeoutInMinutes: 5
+      retryCountOnTaskFailure: 2

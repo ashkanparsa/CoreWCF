@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0</TargetFrameworks>
+    <AssemblyName>CoreWCF.RabbitMQ.Client</AssemblyName>
+    <PackageId>CoreWCF.RabbitMQ.Client</PackageId>
+    <RootNamespace />
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RabbitMQ.Client" />
+    <PackageReference Include="System.ServiceModel.Primitives" />
+  </ItemGroup>
+
+</Project>

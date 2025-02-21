@@ -4,6 +4,7 @@
 using System;
 using System.Threading;
 using CoreWCF.Configuration;
+using CoreWCF.Http.Tests.Helpers;
 using Helpers;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -13,6 +14,7 @@ using Xunit.Abstractions;
 
 namespace CoreWCF.Http.Tests
 {
+    [Collection(HttpSysTestCollectionDefinition.HttpSysTestCollection)]
     public class HttpSysTests
     {
         private readonly ITestOutputHelper _output;
@@ -22,8 +24,7 @@ namespace CoreWCF.Http.Tests
             _output = output;
         }
 
-        [Fact]
-        [Trait("Category", "WindowsOnly")]
+        [WindowsOnlyFact]
 #if NET5_0_OR_GREATER
         [System.Runtime.Versioning.SupportedOSPlatform("windows")]
 #endif

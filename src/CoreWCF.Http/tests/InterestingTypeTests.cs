@@ -33,7 +33,7 @@ namespace CoreWCF.Http.Tests
                 host.Start();
                 System.ServiceModel.BasicHttpBinding httpBinding = ClientHelper.GetBufferedModeBinding();
                 var factory = new System.ServiceModel.ChannelFactory<ITypedContract_Collection>(httpBinding,
-                    new System.ServiceModel.EndpointAddress(new Uri("http://localhost:8080/BasicWcfService/TypedContract_CollectionService.svc")));
+                    new System.ServiceModel.EndpointAddress(new Uri($"http://localhost:{host.GetHttpPort()}/BasicWcfService/TypedContract_CollectionService.svc")));
                 ITypedContract_Collection channel = factory.CreateChannel();
 
                 foreach (int numItems in new int[] { 1, 5, 15, 50 })
@@ -51,7 +51,7 @@ namespace CoreWCF.Http.Tests
                     {
                         if ((int)responseAL[item] != (int)outgoingAL[item])
                         {
-                            Assert.True(false, "ArrayList item validation failed");
+                            Assert.Fail("ArrayList item validation failed");
                         }
                     }
 
@@ -69,7 +69,7 @@ namespace CoreWCF.Http.Tests
                     {
                         if (responseCL[item].CompareTo(outgoingCL[item]) != 0)
                         {
-                            Assert.True(false, "Collection item validation failed");
+                            Assert.Fail("Collection item validation failed");
                         }
                     }
 
@@ -86,7 +86,7 @@ namespace CoreWCF.Http.Tests
                     {
                         if (responseCB[item] != outgoingCB[item])
                         {
-                            Assert.True(false, "MyCollection:CollectionBase item validation failed");
+                            Assert.Fail("MyCollection:CollectionBase item validation failed");
                         }
                     }
                 }

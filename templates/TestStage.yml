@@ -1,182 +1,102 @@
 parameters:
 - name: testProjects
   default: ''
+- name: configurations
+  default: Debug,Release
 
 stages:
 - stage: Test
   displayName: Run Tests
   dependsOn: Build
   jobs:
-  - job: TestRelease
-    strategy:
-      matrix:
-        Windows_netcore3.1:
-          imageName: 'windows-latest'
-          targetFramework: 'netcoreapp3.1'
-          testArgs: ''
-          additionalDotNetCoreSdk: '3.1.x'
-        Windows_net5.0:
-          imageName: 'windows-latest'
-          targetFramework: 'net5.0'
-          testArgs: ''
-          additionalDotNetCoreSdk: '5.0.x'
-        Windows_net6.0:
-          imageName: 'windows-latest'
-          targetFramework: 'net6.0'
-          testArgs: ''
-          additionalDotNetCoreSdk: ''
-        Windows_netfx:
-          imageName: 'windows-latest'
-          targetFramework: 'net472'
-          testArgs: '--filter Category!=NetCoreOnly'
-          additionalDotNetCoreSdk: ''
-        Linux_netcore3.1:
-          imageName: 'ubuntu-latest'
-          targetFramework: 'netcoreapp3.1'
-          testArgs: '--filter Category!=WindowsOnly'
-          additionalDotNetCoreSdk: '3.1.x'
-        Linux_net5.0:
-          imageName: 'ubuntu-latest'
-          targetFramework: 'net5.0'
-          testArgs: '--filter Category!=WindowsOnly'
-          additionalDotNetCoreSdk: '5.0.x'
-        Linux_net6.0:
-          imageName: 'ubuntu-latest'
-          targetFramework: 'net6.0'
-          testArgs: '--filter Category!=WindowsOnly'
-          additionalDotNetCoreSdk: ''
-    displayName: Test Release
-    pool:
-      vmImage: $(imageName)
-    steps:
-    - task: DownloadPipelineArtifact@2
-      displayName: Download build artifacts
-      inputs:
-        source: current
-        artifact: ReleaseBuild
-        path: $(System.DefaultWorkingDirectory)/bin
+  - ${{ each configuration in split(parameters.configurations, ',') }}:
+    - job: Test${{ configuration }}
+      strategy:
+        matrix:
+          Windows_net8.0:
+            imageName: 'windows-latest'
+            targetFramework: 'net8.0'
+            testArgs: ''
+            dotnetSdk: '8.0.x'
+            artifactName: 'Windows${{ configuration }}Build'
+          Windows_net9.0:
+            imageName: 'windows-latest'
+            targetFramework: 'net9.0'
+            testArgs: ''
+            dotnetSdk: '9.0.x'
+            artifactName: 'Windows${{ configuration }}Build'            
+          Windows_netfx:
+            imageName: 'windows-latest'
+            targetFramework: 'net472'
+            testArgs: ''
+            dotnetSdk: '9.0.x'
+            artifactName: 'Windows${{ configuration }}Build'
+          Linux_net8.0:
+            imageName: 'ubuntu-latest'
+            targetFramework: 'net8.0'
+            testArgs: ''
+            dotnetSdk: '8.0.x'
+            artifactName: 'Linux${{ configuration }}Build'
+          Linux_net9.0:
+            imageName: 'ubuntu-latest'
+            targetFramework: 'net9.0'
+            testArgs: ''
+            dotnetSdk: '9.0.x'
+            artifactName: 'Linux${{ configuration }}Build'            
+      displayName: Test ${{ configuration }}
+      pool:
+        vmImage: $(imageName)
+      variables:
+        ci: true
+      steps:
+      - bash: |
+          echo 'Starting docker services...'
+          docker compose up -d
+        name: DockerComposeLinuxServices
+        displayName: Start services hosted by linux containers
+        condition: eq(variables.imageName, 'ubuntu-latest')
+        timeoutInMinutes: 5
+        retryCountOnTaskFailure: 2
 
-    - task: UseDotNet@2
-      displayName: 'Use .NET Core 6 sdk'
-      inputs:
-        packageType: sdk
-        version: '6.0.x'
-        installationPath: $(Agent.ToolsDirectory)/dotnet
+      - task: DownloadPipelineArtifact@2
+        displayName: Download build artifacts
+        inputs:
+          source: current
+          artifact: $(artifactName)
+          path: $(System.DefaultWorkingDirectory)/bin
 
-    - task: UseDotNet@2
-      displayName: 'Use additional .NET Core sdk'
-      inputs:
-        packageType: sdk
-        version: $(additionalDotNetCoreSdk)
-        installationPath: $(Agent.ToolsDirectory)/dotnet
-      condition: not(eq(variables.additionalDotNetCoreSdk, ''))
+      - task: UseDotNet@2
+        displayName: 'Use .NET sdk 9.0.x'
+        inputs:
+          packageType: sdk
+          version: 9.0.x
+          installationPath: $(Agent.ToolsDirectory)/dotnet
+          includePreviewVersions: true
 
-    - task: DotNetCoreCLI@2
-      displayName: Restore packages
-      inputs:
-        command: 'build'
-        projects: ${{ parameters.testProjects}}
-        arguments: '--configuration Release /t:restore'
+      - task: UseDotNet@2
+        displayName: 'Use Additional .NET sdk $(dotnetSdk)'
+        condition: and(succeeded(), ne(variables.dotnetSdk, '9.0.x'))
+        inputs:
+          packageType: sdk
+          version: $(dotnetSdk)
+          installationPath: $(Agent.ToolsDirectory)/dotnet
+          includePreviewVersions: true
 
-    - task: DotNetCoreCLI@2
-      displayName: Build test projects
-      inputs:
-        command: 'build'
-        projects: ${{ parameters.testProjects}}
-        arguments: '--configuration Release --framework $(targetFramework)'
+      - task: DotNetCoreCLI@2
+        displayName: Run Tests
+        timeoutInMinutes: 30
+        inputs:
+          command: 'test'
+          projects: ${{ parameters.testProjects }}
+          publishTestResults: true
+          arguments: '--no-restore --no-build -c ${{ configuration }} -f $(targetFramework) $(testArgs)'
 
-    - task: DotNetCoreCLI@2
-      displayName: Run Tests
-      timeoutInMinutes: 10
-      inputs:
-        command: 'test'
-        projects: ${{ parameters.testProjects}}
-        publishTestResults: true
-        arguments: '--no-restore --no-build --configuration Release --framework $(targetFramework) $(testArgs)'
+      - bash: |
+          echo 'Cleaning up docker services...'
+          docker compose down --rmi all
+        name: DockerComposeDownLinuxServices
+        displayName: Clean up containers used to host services
+        condition: eq(variables.imageName, 'ubuntu-latest')
+        timeoutInMinutes: 5
+        retryCountOnTaskFailure: 2
 
-  - job: TestDebug
-    strategy:
-      matrix:
-        Windows_netcore3.1:
-          imageName: 'windows-latest'
-          targetFramework: 'netcoreapp3.1'
-          testArgs: ''       
-          additionalDotNetCoreSdk: '3.1.x'
-        Windows_net5.0:
-          imageName: 'windows-latest'
-          targetFramework: 'net5.0'
-          testArgs: ''
-          additionalDotNetCoreSdk: '5.0.x'
-        Windows_net6.0:
-          imageName: 'windows-latest'
-          targetFramework: 'net6.0'
-          testArgs: ''
-          additionalDotNetCoreSdk: ''
-        Windows_netfx:
-          imageName: 'windows-latest'
-          targetFramework: 'net472'
-          testArgs: '--filter Category!=NetCoreOnly'
-          additionalDotNetCoreSdk: ''
-        Linux_netcore3.1:
-          imageName: 'ubuntu-latest'
-          targetFramework: 'netcoreapp3.1'
-          testArgs: '--filter Category!=WindowsOnly'
-          additionalDotNetCoreSdk: '3.1.x'
-        Linux_net5.0:
-          imageName: 'ubuntu-latest'
-          targetFramework: 'net5.0'
-          testArgs: '--filter Category!=WindowsOnly'
-          additionalDotNetCoreSdk: '5.0.x'
-        Linux_net6.0:
-          imageName: 'ubuntu-latest'
-          targetFramework: 'net6.0'
-          testArgs: '--filter Category!=WindowsOnly'
-          additionalDotNetCoreSdk: ''
-    displayName: Test Debug
-    pool:
-      vmImage: $(imageName)
-    steps:
-    - task: DownloadPipelineArtifact@2
-      displayName: Download build artifacts
-      inputs:
-        source: current
-        artifact: DebugBuild
-        path: $(System.DefaultWorkingDirectory)/bin
-
-    - task: UseDotNet@2
-      displayName: 'Use .NET Core 6 sdk'
-      inputs:
-        packageType: sdk
-        version: '6.0.x'
-        installationPath: $(Agent.ToolsDirectory)/dotnet
-
-    - task: UseDotNet@2
-      displayName: 'Use additional .NET Core sdk'
-      inputs:
-        packageType: sdk
-        version: $(additionalDotNetCoreSdk)
-        installationPath: $(Agent.ToolsDirectory)/dotnet
-      condition: not(eq(variables.additionalDotNetCoreSdk, ''))
-
-    - task: DotNetCoreCLI@2
-      displayName: Restore packages
-      inputs:
-        command: 'build'
-        projects: ${{ parameters.testProjects}}
-        arguments: '--configuration Debug /t:restore'
-        
-    - task: DotNetCoreCLI@2
-      displayName: Build test projects
-      inputs:
-        command: 'build'
-        projects: ${{ parameters.testProjects}}
-        arguments: '--configuration Debug --framework $(targetFramework)'
-
-    - task: DotNetCoreCLI@2
-      displayName: Run Tests
-      timeoutInMinutes: 10
-      inputs:
-        command: 'test'
-        projects: ${{ parameters.testProjects}}
-        publishTestResults: true
-        arguments: '--no-restore --no-build --configuration Debug --framework $(targetFramework) $(testArgs)'

@@ -12,23 +12,28 @@ trigger:
 pr: none
 
 variables:
-  _solution: 'src/CoreWCF.sln'
+  _solutions: '*.sln'
   _libraryProjects: 'src/CoreWCF.*/src/CoreWCF.*.csproj'
-  _testProjects: '**/*.Tests.csproj'
+  # templates tests are ran from a dedicated stage
+  _testProjects: |
+    **/CoreWCF.*.Tests.csproj
+    !**/CoreWCF.Templates.Tests.csproj
 
 stages:
 - template: templates/BuildStage.yml
   parameters:
-    buildProjects: $(_libraryProjects)
+    solutions: $(_solutions)
 
 - template: templates/TestStage.yml
   parameters:
     testProjects: $(_testProjects)
 
+- template: templates/TestTemplatesStage.yml
+
 - template: templates/CodeAnalysis.yml
   parameters:
+    solutions: $(_solutions)
     testProjects: $(_testProjects)
-    solution: $(_solution)
 
 - template: templates/PackStage.yml
   parameters:

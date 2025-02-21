@@ -2,10 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
-using System.Text;
 using System.Threading.Tasks;
 using CoreWCF.Configuration;
 using Helpers;
@@ -36,12 +34,12 @@ namespace CoreWCF.Http.Tests
                 host.Start();
                 System.ServiceModel.BasicHttpBinding httpBinding = ClientHelper.GetBufferedModeBinding();
                 var factory = new System.ServiceModel.ChannelFactory<ClientContract.IEchoService>(httpBinding,
-                    new System.ServiceModel.EndpointAddress(new Uri("http://localhost:8080/BasePath/BasicHttp/basichttp.svc")));
+                    new System.ServiceModel.EndpointAddress(new Uri($"http://localhost:{host.GetHttpPort()}/BasePath/BasicHttp/basichttp.svc")));
                 ClientContract.IEchoService channel = factory.CreateChannel();
                 string result = channel.EchoString(testString);
                 Assert.Equal(testString, result);
                 HttpClient httpClient = new HttpClient();
-                var responseMessage = await httpClient.GetAsync("http://localhost:8080/BasePath/SomeOtherUrl/GetRequest");
+                var responseMessage = await httpClient.GetAsync($"http://localhost:{host.GetHttpPort()}/BasePath/SomeOtherUrl/GetRequest");
                 Assert.True(responseMessage.Headers.Contains("Test_Path"));
                 Assert.Equal("/SomeOtherUrl/GetRequest", responseMessage.Headers.GetValues("Test_Path").SingleOrDefault());
                 Assert.True(responseMessage.Headers.Contains("Test_PathBase"));

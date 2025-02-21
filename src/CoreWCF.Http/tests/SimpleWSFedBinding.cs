@@ -39,7 +39,7 @@ namespace WSFed
         {
             string testString = new string('a', 3000);
             IWebHost host;
-            if(!isToEstablishSecurityContext)
+            if (!isToEstablishSecurityContext)
             {
                 host = isUserIdentity ? ServiceHelper.CreateHttpsWebHostBuilder<WSFedNoEstablishSecurityContextWithUserIdentity>(_output).Build()
                     : ServiceHelper.CreateHttpsWebHostBuilder<WSFedNoEstablishSecurityContextNoUserIdentity>(_output).Build();
@@ -138,7 +138,7 @@ namespace WSFed
                 _isUserIdentityConfig = isUserIdentityConfig;
             }
 
-            public void Configure(IApplicationBuilder app, IHostingEnvironment env)
+            public void Configure(IApplicationBuilder app)
             {
 
                 WS2007FederationHttpBinding wsFedBinding = new WS2007FederationHttpBinding(WSFederationHttpSecurityMode.TransportWithMessageCredential);

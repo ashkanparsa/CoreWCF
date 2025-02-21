@@ -26,13 +26,11 @@ namespace CoreWCF.Http.Tests
         }
 
         [Theory]
-        /* message handled in service but client throws
         [InlineData("defaultaction")]
         [InlineData("customaction")]
         [InlineData("uriaction")]
         [InlineData("emptyaction")]
         [InlineData("untypedaction")]
-        */
         [InlineData("defaultreplyaction")]
         [InlineData("customreplyaction")]
         [InlineData("urireplyaction")]
@@ -46,7 +44,7 @@ namespace CoreWCF.Http.Tests
                 host.Start();
                 System.ServiceModel.BasicHttpBinding httpBinding = ClientHelper.GetBufferedModeBinding();
                 var factory = new System.ServiceModel.ChannelFactory<ClientContract.IOpActionReplyActionBehavior>(httpBinding,
-                    new System.ServiceModel.EndpointAddress(new Uri("http://localhost:8080/BasicWcfService/OpActionReplyActionBehaviorService.svc")));
+                    new System.ServiceModel.EndpointAddress(new Uri($"http://localhost:{host.GetHttpPort()}/BasicWcfService/OpActionReplyActionBehaviorService.svc")));
                 IOpActionReplyActionBehavior channel = factory.CreateChannel();
 
                 switch (variation)

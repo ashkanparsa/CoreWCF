@@ -3,6 +3,7 @@
 
 using System;
 using System.ServiceModel.Channels;
+using System.Threading.Tasks;
 using CoreWCF;
 using CoreWCF.Configuration;
 using Helpers;
@@ -16,8 +17,12 @@ namespace NetHttp
 {
     public class WebSocketsTests
     {
-        private const string NetHttpServiceBaseUri = "http://localhost:8080";
-        private const string NetHttpBufferedServiceUri = NetHttpServiceBaseUri + Startup.BufferedPath;
+        private const string NetHttpServiceBaseUriFormat = "http://localhost:{0}";
+        private static string GetNetHttpServiceBaseUri(IWebHost webHost)
+            => string.Format(NetHttpServiceBaseUriFormat, webHost.GetHttpPort());
+        private static string GetNetHttpBufferedServiceUri(IWebHost webHost)
+            => string.Concat(GetNetHttpServiceBaseUri(webHost), Startup.BufferedPath);
+
         private readonly ITestOutputHelper _output;
 
         public WebSocketsTests(ITestOutputHelper output)
@@ -51,6 +56,58 @@ namespace NetHttp
         }
 
         [Fact]
+        public async Task NetHttpWebSocketsWorkWithNullSubProtocol()
+        {
+            var serverBinding = new CoreWCF.Channels.CustomBinding()
+            {
+                Elements =
+                {
+                    new CoreWCF.Channels.BinaryMessageEncodingBindingElement(),
+                    new CoreWCF.Channels.HttpTransportBindingElement
+                    {
+                        WebSocketSettings = { SubProtocol = null, TransportUsage = CoreWCF.Channels.WebSocketTransportUsage.Always }
+                    }
+                }
+            };
+            var path = "/websocket";
+            using var host = ServiceHelper.CreateWebHostBuilder<StartupWithInjectedServicepoint>(_output)
+                .ConfigureServices(services =>
+                {
+                    services.AddSingleton(new ServiceEndpoint(serverBinding, path));
+                })
+                .Build();
+
+            await host.StartAsync();
+
+            System.ServiceModel.Channels.Binding clientBinding = new CustomBinding()
+            {
+                Elements =
+                {
+                    new BinaryMessageEncodingBindingElement(),
+                    new HttpTransportBindingElement
+                    {
+                        WebSocketSettings = { SubProtocol = null, TransportUsage = WebSocketTransportUsage.Always}
+                    }
+                }
+            };
+
+            using var channelFactory = new System.ServiceModel.ChannelFactory<ClientContract.IEchoService>(
+                clientBinding,
+                new System.ServiceModel.EndpointAddress(new Uri(GetNetHttpServiceBaseUri(host) + path)));
+            var client = channelFactory.CreateChannel();
+
+            try
+            {
+                client.EchoString("Hello world");
+            }
+            finally
+            {
+                if (client is IDisposable clientChannel)
+                    clientChannel.Dispose();
+            }
+        }
+
+        [Fact]
         public void NetHttpWebSocketsBufferedTransferMode()
         {
             string testString = new string('a', 3000);
@@ -64,7 +121,7 @@ namespace NetHttp
                 {
                     System.ServiceModel.NetHttpBinding binding = ClientHelper.GetBufferedModeWebSocketBinding();
                     factory = new System.ServiceModel.ChannelFactory<ClientContract.IEchoService>(binding,
-                        new System.ServiceModel.EndpointAddress(new Uri(NetHttpBufferedServiceUri)));
+                        new System.ServiceModel.EndpointAddress(new Uri(GetNetHttpBufferedServiceUri(host))));
                     channel = factory.CreateChannel();
                     ((IChannel)channel).Open();
                     string result = channel.EchoString(testString);
@@ -130,5 +187,25 @@ namespace NetHttp
                 });
             }
         }
+
+        private class StartupWithInjectedServicepoint
+        {
+            public void ConfigureServices(IServiceCollection services)
+            {
+                services.AddServiceModelServices();
+            }
+
+            public void Configure(IApplicationBuilder app)
+            {
+                var (binding, path) = app.ApplicationServices.GetRequiredService<ServiceEndpoint>();
+                app.UseServiceModel(builder =>
+                {
+                    builder.AddService<Services.EchoService>();
+                    builder.AddServiceEndpoint<Services.EchoService, ServiceContract.IEchoService>(binding, path);
+                });
+            }
+        }
+
+        private record ServiceEndpoint(CoreWCF.Channels.Binding Binding, string Path);
     }
 }

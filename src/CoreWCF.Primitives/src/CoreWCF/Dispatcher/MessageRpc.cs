@@ -4,6 +4,7 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using CoreWCF.Channels;
@@ -59,6 +60,7 @@ namespace CoreWCF.Dispatcher
         internal bool SuccessfullyBoundInstance;
         internal bool SuccessfullyIncrementedActivity;
         internal bool SuccessfullyLockedInstance;
+        internal /* ReceiveContextRPCFacet */ ReceiveContext ReceiveContext;
         //internal TransactionRpcFacet transaction;
         //internal IAspNetMessageProperty HostingProperty;
         //internal MessageRpcInvokeNotification InvokeNotification;
@@ -96,6 +98,7 @@ namespace CoreWCF.Dispatcher
             OperationContext = operationContext;
             IsPaused = false;
             ParametersDisposed = false;
+            ReceiveContext = null;
             Request = request;
             RequestContext = requestContext;
             RequestContextThrewOnReply = false;
@@ -174,18 +177,27 @@ namespace CoreWCF.Dispatcher
         //    }
         //}
 
-        internal void Abort()
+        internal async ValueTask AbortAsync()
         {
-            AbortRequestContext();
+            await AbortRequestContextAsync();
             AbortChannel();
             AbortInstanceContext();
         }
 
-        private void AbortRequestContext(RequestContext requestContext)
+        private async ValueTask AbortRequestContextAsync(RequestContext requestContext)
         {
             try
             {
                 requestContext.Abort();
+
+                /* ReceiveContextRPCFacet */ ReceiveContext receiveContext = ReceiveContext;
+
+                if (receiveContext != null)
+                {
+                    ReceiveContext = null;
+
+                    await receiveContext.AbandonAsync(CancellationToken.None);
+                }
             }
             catch (Exception e)
             {
@@ -198,16 +210,17 @@ namespace CoreWCF.Dispatcher
             }
         }
 
-        internal void AbortRequestContext()
+        internal async ValueTask AbortRequestContextAsync()
         {
             if (OperationContext.RequestContext != null)
             {
-                AbortRequestContext(OperationContext.RequestContext);
+                await AbortRequestContextAsync(OperationContext.RequestContext);
             }
             if ((RequestContext != null) && (RequestContext != OperationContext.RequestContext))
             {
-                AbortRequestContext(RequestContext);
+                await AbortRequestContextAsync(RequestContext);
             }
+
             TraceCallDurationInDispatcherIfNecessary(false);
         }
 
@@ -227,24 +240,31 @@ namespace CoreWCF.Dispatcher
             //}
         }
 
-        internal void CloseRequestContext()
+        internal async Task CloseRequestContextAsync()
         {
             if (OperationContext.RequestContext != null)
             {
-                DisposeRequestContext(OperationContext.RequestContext);
+                await DisposeRequestContextAsync(OperationContext.RequestContext);
             }
             if ((RequestContext != null) && (RequestContext != OperationContext.RequestContext))
             {
-                DisposeRequestContext(RequestContext);
+                await DisposeRequestContextAsync(RequestContext);
             }
             TraceCallDurationInDispatcherIfNecessary(true);
         }
 
-        private void DisposeRequestContext(RequestContext context)
+        private async ValueTask DisposeRequestContextAsync(RequestContext context)
         {
             try
             {
-                context.CloseAsync().GetAwaiter().GetResult();
+                await context.CloseAsync();
+
+                /* ReceiveContextRPCFacet */ ReceiveContext receiveContext = ReceiveContext;
+                if (receiveContext != null)
+                {
+                    ReceiveContext = null;
+                    await receiveContext.CompleteAsync(CancellationToken.None);
+                }
             }
             catch (Exception e)
             {
@@ -253,7 +273,7 @@ namespace CoreWCF.Dispatcher
                     throw;
                 }
 
-                AbortRequestContext(context);
+                await AbortRequestContextAsync(context);
                 ChannelHandler.HandleError(e);
             }
         }
@@ -278,15 +298,14 @@ namespace CoreWCF.Dispatcher
             }
         }
 
-        // TODO: Make async
-        internal void CloseChannel()
+        internal async Task CloseChannelAsync()
         {
             if ((Channel != null) && Channel.HasSession)
             {
                 try
                 {
                     var helper = new TimeoutHelper(ChannelHandler.CloseAfterFaultTimeout);
-                    Channel.CloseAsync(helper.GetCancellationToken()).GetAwaiter().GetResult();
+                    await Channel.CloseAsync(helper.GetCancellationToken());
                 }
                 catch (Exception e)
                 {
@@ -452,15 +471,12 @@ namespace CoreWCF.Dispatcher
             // bool completed = true;
 
             OperationContext originalContext;
-            OperationContext.Holder contextHolder;
             if (!isOperationContextSet)
             {
-                contextHolder = OperationContext.CurrentHolder;
-                originalContext = contextHolder.Context;
+                originalContext = OperationContext.Current;
             }
             else
             {
-                contextHolder = null;
                 originalContext = null;
             }
             IncrementBusyCount();
@@ -469,7 +485,7 @@ namespace CoreWCF.Dispatcher
             {
                 if (!isOperationContextSet)
                 {
-                    contextHolder.Context = OperationContext;
+                    OperationContext.Current = OperationContext;
                 }
 
                 await AsyncProcessor(this);
@@ -484,7 +500,7 @@ namespace CoreWCF.Dispatcher
                 }
                 if (!ProcessError(e) && FaultInfo.Fault == null)
                 {
-                    Abort();
+                    await AbortAsync();
                 }
             }
             finally
@@ -495,7 +511,7 @@ namespace CoreWCF.Dispatcher
 
                     if (!isOperationContextSet)
                     {
-                        contextHolder.Context = originalContext;
+                        OperationContext.Current = originalContext;
                     }
 
                     OperationContext.ClearClientReplyNoThrow();

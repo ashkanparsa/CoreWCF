@@ -4,6 +4,7 @@
 using System;
 using System.Diagnostics;
 using System.Net;
+using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
@@ -13,13 +14,13 @@ namespace Helpers
 {
     public static class ServiceHelper
     {
-        public static IWebHostBuilder CreateWebHostBuilder<TStartup>(ITestOutputHelper outputHelper = default) where TStartup : class =>
+        public static IWebHostBuilder CreateWebHostBuilder<TStartup>(ITestOutputHelper outputHelper = default, [CallerMemberName] string callerMethodName = "") where TStartup : class =>
             WebHost.CreateDefaultBuilder(Array.Empty<string>())
 #if DEBUG
             .ConfigureLogging((ILoggingBuilder logging) =>
             {
                 if (outputHelper != default)
-                    logging.AddProvider(new XunitLoggerProvider(outputHelper));
+                    logging.AddProvider(new XunitLoggerProvider(outputHelper, callerMethodName));
                 logging.AddFilter("Default", LogLevel.Debug);
                 logging.AddFilter("Microsoft", LogLevel.Debug);
                 logging.SetMinimumLevel(LogLevel.Debug);
@@ -27,8 +28,7 @@ namespace Helpers
 #endif // DEBUG
             .UseKestrel(options =>
             {
-                options.AllowSynchronousIO = true;
-                options.Listen(IPAddress.Loopback, 8080, listenOptions =>
+                options.Listen(IPAddress.Loopback, 0, listenOptions =>
                 {
                     if (Debugger.IsAttached)
                     {
@@ -36,15 +36,38 @@ namespace Helpers
                     }
                 });
             })
-    .UseStartup<TStartup>();
+            .UseStartup<TStartup>();
 
-        public static IWebHostBuilder CreateWebHostBuilderWithSsl<TStartup>(ITestOutputHelper outputHelper = default) where TStartup : class =>
+        public static IWebHostBuilder CreateWebHostBuilder(ITestOutputHelper outputHelper, Type startupType, [CallerMemberName] string callerMethodName = "") =>
+            WebHost.CreateDefaultBuilder(Array.Empty<string>())
+#if DEBUG
+                .ConfigureLogging((ILoggingBuilder logging) =>
+                {
+                    logging.AddProvider(new XunitLoggerProvider(outputHelper, callerMethodName));
+                    logging.AddFilter("Default", LogLevel.Debug);
+                    logging.AddFilter("Microsoft", LogLevel.Debug);
+                    logging.SetMinimumLevel(LogLevel.Debug);
+                })
+#endif // DEBUG
+                .UseKestrel(options =>
+                {
+                    options.Listen(IPAddress.Loopback, 0, listenOptions =>
+                    {
+                        if (Debugger.IsAttached)
+                        {
+                            listenOptions.UseConnectionLogging();
+                        }
+                    });
+                })
+                .UseStartup(startupType);
+
+        public static IWebHostBuilder CreateWebHostBuilderWithSsl<TStartup>(ITestOutputHelper outputHelper = default, [CallerMemberName] string callerMethodName = "") where TStartup : class =>
     WebHost.CreateDefaultBuilder(Array.Empty<string>())
 #if DEBUG
             .ConfigureLogging((ILoggingBuilder logging) =>
             {
                 if (outputHelper != default)
-                    logging.AddProvider(new XunitLoggerProvider(outputHelper));
+                    logging.AddProvider(new XunitLoggerProvider(outputHelper, callerMethodName));
                 logging.AddFilter("Default", LogLevel.Debug);
                 logging.AddFilter("Microsoft", LogLevel.Debug);
                 logging.SetMinimumLevel(LogLevel.Debug);
@@ -52,15 +75,14 @@ namespace Helpers
 #endif // DEBUG
             .UseKestrel(options =>
             {
-                options.AllowSynchronousIO = true;
-                options.Listen(IPAddress.Loopback, 8080, listenOptions =>
+                options.Listen(IPAddress.Loopback, 0, listenOptions =>
                 {
                     if (Debugger.IsAttached)
                     {
                         listenOptions.UseConnectionLogging();
                     }
                 });
-                options.Listen(IPAddress.Loopback, 8081, listenOptions =>
+                options.Listen(IPAddress.Loopback, 0, listenOptions =>
                 {
                     listenOptions.UseHttps();
 
@@ -70,6 +92,6 @@ namespace Helpers
                     }
                 });
             })
-.UseStartup<TStartup>();
+            .UseStartup<TStartup>();
     }
 }

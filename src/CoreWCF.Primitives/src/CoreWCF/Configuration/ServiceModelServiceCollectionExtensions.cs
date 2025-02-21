@@ -9,6 +9,7 @@ using CoreWCF.Dispatcher;
 using CoreWCF.IdentityModel;
 using CoreWCF.IdentityModel.Configuration;
 using CoreWCF.IdentityModel.Tokens;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -72,19 +73,22 @@ namespace CoreWCF.Configuration
             services.AddSingleton<ServiceBuilder>();
             services.AddSingleton<IServiceBuilder>(provider => provider.GetRequiredService<ServiceBuilder>());
             services.AddSingleton<IServiceBehavior>(provider => provider.GetRequiredService<ServiceAuthorizationBehavior>());
-            services.AddSingleton<ServiceAuthorizationBehavior>(provider =>
+            services.AddSingleton(provider =>
             {
-                var behavior = new ServiceAuthorizationBehavior();
+                ServiceAuthorizationBehavior serviceAuthorizationBehavior = new();
                 ServiceAuthorizationManager manager = provider.GetService<ServiceAuthorizationManager>();
                 if (manager != null)
                 {
-                    behavior.ServiceAuthorizationManager = manager;
+                    serviceAuthorizationBehavior.ServiceAuthorizationManager = manager;
                 }
-                return behavior;
+                IServiceScopeFactory serviceScopeFactory = provider.GetService<IServiceScopeFactory>();
+                serviceAuthorizationBehavior.ServiceScopeFactory = serviceScopeFactory;
+                return serviceAuthorizationBehavior;
             });
             services.TryAddSingleton(typeof(IServiceConfiguration<>), typeof(ServiceConfiguration<>));
             services.TryAddSingleton<IDispatcherBuilder, DispatcherBuilderImpl>();
             services.AddSingleton(typeof(ServiceConfigurationDelegateHolder<>));
+            services.AddSingleton<AllServicesConfigurationDelegateHolder>();
             services.AddScoped<ReplyChannelBinder>();
             services.AddScoped<DuplexChannelBinder>();
             services.AddScoped<InputChannelBinder>();

@@ -8,12 +8,14 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using CoreWCF.Channels;
-using CoreWCF.IdentityModel.Claims;
 using CoreWCF.IdentityModel.Policy;
 using CoreWCF.Runtime;
 using CoreWCF.Security;
+using Microsoft.AspNetCore.Authorization;
+using Claim = CoreWCF.IdentityModel.Claims.Claim;
 
 namespace CoreWCF.Dispatcher
 {
@@ -46,6 +48,7 @@ namespace CoreWCF.Dispatcher
             FaultFormatter = operation.FaultFormatter;
             Impersonation = operation.Impersonation;
             AuthorizeClaims = operation.AuthorizeClaims;
+            AuthorizationPolicy = operation.AuthorizationPolicy;
             _deserializeRequest = operation.DeserializeRequest;
             SerializeReply = operation.SerializeReply;
             Formatter = operation.Formatter;
@@ -107,6 +110,8 @@ namespace CoreWCF.Dispatcher
 
         internal ConcurrentDictionary<string, List<Claim>> AuthorizeClaims { get; }
 
+        internal Lazy<AuthorizationPolicy> AuthorizationPolicy { get; }
+
         internal IOperationInvoker Invoker { get; }
 
         internal bool IsOneWay { get; }
@@ -165,8 +170,8 @@ namespace CoreWCF.Dispatcher
                 }
                 try
                 {
-                    // If the field is true, then this operation is to be invoked at the time the service 
-                    // channel is opened. The incoming message is created at ChannelHandler level with no 
+                    // If the field is true, then this operation is to be invoked at the time the service
+                    // channel is opened. The incoming message is created at ChannelHandler level with no
                     // content, so we don't need to deserialize the message.
                     if (!_isSessionOpenNotificationEnabled)
                     {
@@ -373,39 +378,37 @@ namespace CoreWCF.Dispatcher
             return rpc;
         }
 
-        private void SetClaimsPrincipalToOperationContext(MessageRpc rpc)
+        internal void SetClaimsPrincipalToOperationContext(MessageRpc rpc)
         {
-            // TODO: Reenable this code
+            ServiceSecurityContext securityContext = rpc.SecurityContext;
+            if (!rpc.HasSecurityContext)
+            {
+                SecurityMessageProperty securityContextProperty = rpc.Request.Properties.Security;
+                if (securityContextProperty != null)
+                {
+                    securityContext = securityContextProperty.ServiceSecurityContext;
+                }
+            }
 
-            //ServiceSecurityContext securityContext = rpc.SecurityContext;
-            //if (!rpc.HasSecurityContext)
-            //{
-            //    SecurityMessageProperty securityContextProperty = rpc.Request.Properties.Security;
-            //    if (securityContextProperty != null)
-            //    {
-            //        securityContext = securityContextProperty.ServiceSecurityContext;
-            //    }
-            //}
-
-            //if (securityContext != null)
-            //{
-            //    object principal;
-            //    if (securityContext.AuthorizationContext.Properties.TryGetValue(AuthorizationPolicy.ClaimsPrincipalKey, out principal))
-            //    {
-            //        ClaimsPrincipal claimsPrincipal = principal as ClaimsPrincipal;
-            //        if (claimsPrincipal != null)
-            //        {
-            //            //
-            //            // Always set ClaimsPrincipal to OperationContext.Current if identityModel pipeline is used.
-            //            //
-            //            OperationContext.Current.ClaimsPrincipal = claimsPrincipal;
-            //        }
-            //        else
-            //        {
-            //            throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new InvalidOperationException(SR.NoPrincipalSpecifiedInAuthorizationContext));
-            //        }
-            //    }
-            //}
+            if (securityContext != null)
+            {
+                object principal;
+                if (securityContext.AuthorizationContext.Properties.TryGetValue(IdentityModel.Tokens.AuthorizationPolicy.ClaimsPrincipalKey, out principal))
+                {
+                    ClaimsPrincipal claimsPrincipal = principal as ClaimsPrincipal;
+                    if (claimsPrincipal != null)
+                    {
+                        //
+                        // Always set ClaimsPrincipal to OperationContext.Current if identityModel pipeline is used.
+                        //
+                        OperationContext.Current.ClaimsPrincipal = claimsPrincipal;
+                    }
+                    else
+                    {
+                        throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new InvalidOperationException(SR.NoPrincipalSpecifiedInAuthorizationContext));
+                    }
+                }
+            }
         }
 
         private void SerializeOutputs(MessageRpc rpc)
@@ -544,8 +547,11 @@ namespace CoreWCF.Dispatcher
         private void ValidateAuthorizedClaims(MessageRpc rpc)
         {
             if (AuthorizeClaims.IsEmpty || AuthorizeClaims.Keys.Count == 0)
+            {
                 return;
-            if (rpc.OperationContext?.ServiceSecurityContext.AuthorizationPolicies == null)
+            }
+
+            if (rpc.OperationContext?.ServiceSecurityContext?.AuthorizationContext == null)
             {
                 throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(AuthorizationBehavior.CreateAccessDeniedFaultException());
             }
@@ -553,32 +559,26 @@ namespace CoreWCF.Dispatcher
             foreach (var eachAuthClaim in AuthorizeClaims)
             {
                 List<Claim> allClaims = eachAuthClaim.Value;
-                if(!IsClaimFound(rpc.OperationContext?.ServiceSecurityContext.AuthorizationPolicies, allClaims))
+                if(!IsClaimFound(rpc.OperationContext?.ServiceSecurityContext.AuthorizationContext.ClaimSets, allClaims))
                 {
                     throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(AuthorizationBehavior.CreateAccessDeniedFaultException());
                 }
             }
         }
 
-        private bool IsClaimFound(ReadOnlyCollection<IAuthorizationPolicy> policies, List<Claim> anyClaims)
+        private bool IsClaimFound(ReadOnlyCollection<IdentityModel.Claims.ClaimSet> claimSets, List<Claim> anyClaims)
         {
-            foreach (var policy in policies)
+            foreach (var claim in anyClaims)
             {
-                if(policy is UnconditionalPolicy)
+                foreach (var claimSet in claimSets)
                 {
-                    var claimSets = ((UnconditionalPolicy)policy).Issuances;
-                    foreach (var claim in anyClaims)
+                    if (claimSet.ContainsClaim(claim))
                     {
-                        foreach (var claimSet in claimSets)
-                        {
-                            if (claimSet.ContainsClaim(claim))
-                            {
-                                return true;
-                            }
-                        }
+                        return true;
                     }
                 }
             }
+
             return false;
         }
     }

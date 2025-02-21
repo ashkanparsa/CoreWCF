@@ -20,6 +20,7 @@ namespace CoreWCF.Http.Tests
         private readonly ITestOutputHelper _output;
         public const string TestString = "String to test";
         public const string FileToSend = "temp.dat";
+        private IWebHost _host;
 
         public StreamingServiceTests(ITestOutputHelper output)
         {
@@ -35,18 +36,26 @@ namespace CoreWCF.Http.Tests
         //[InlineData("VoidStreamService")]
         //[InlineData("RefStreamService")] //issue: https://github.com/CoreWCF/CoreWCF/issues/196
         //[InlineData("StreamInOutService")]
-        [InlineData("StreamStreamAsyncService")]
-        [InlineData("InFileStreamService")]
-        [InlineData("ReturnFileStreamService")]
-        [InlineData("MessageContractStreamInOutService")]
-        [InlineData("MessageContractStreamMutipleOperationsService")]
-        public void StreamingInputOutputTest(string method)
+        [InlineData("StreamStreamAsyncService", false)]
+        [InlineData("InFileStreamService", false)]
+        [InlineData("ReturnFileStreamService", false)]
+        [InlineData("MessageContractStreamInOutService", false)]
+        [InlineData("MessageContractStreamMutipleOperationsService", false)]
+        [InlineData("AsyncOnlyMtomStreamingService", true)] // XmlMtomReader still uses sync IO. Writing should be fully async.
+        public void StreamingInputOutputTest(string method, bool allowSynchronousIo)
         {
-            IWebHost host = ServiceHelper.CreateWebHostBuilder<Startup>(_output).Build();
-            Startup._method = method;
-            using (host)
+            IWebHostBuilder builder = ServiceHelper.CreateWebHostBuilder<Startup>(_output);
+
+            if (allowSynchronousIo)
             {
-                host.Start();
+                builder.AllowSynchronousIO();
+            }
+
+            _host = builder.Build();
+            Startup._method = method;
+            using (_host)
+            {
+                _host.Start();
                 switch (method)
                 {
                     case "VoidStreamService":
@@ -73,6 +82,9 @@ namespace CoreWCF.Http.Tests
                     case "MessageContractStreamMutipleOperationsService":
                         MessageContractStreamMutipleOperationsService();
                         break;
+                    case "AsyncOnlyMtomStreamingService":
+                        AsyncOnlyMtomStreamingService();
+                        break;
                     default:
                         break;
                 }
@@ -81,8 +93,16 @@ namespace CoreWCF.Http.Tests
 
         private T GetProxy<T>()
         {
-            System.ServiceModel.BasicHttpBinding httpBinding = ClientHelper.GetBufferedModeBinding();
-            ChannelFactory<T> channelFactory = new ChannelFactory<T>(httpBinding, new System.ServiceModel.EndpointAddress(new Uri("http://localhost:8080/BasicWcfService/StreamingInputOutputService.svc")));
+            System.ServiceModel.BasicHttpBinding httpBinding = ClientHelper.GetStreamedModeBinding();
+            ChannelFactory<T> channelFactory = new ChannelFactory<T>(httpBinding, new System.ServiceModel.EndpointAddress(new Uri($"http://localhost:{_host.GetHttpPort()}/BasicWcfService/StreamingInputOutputService.svc")));
+            T proxy = channelFactory.CreateChannel();
+            return proxy;
+        }
+
+        private T GetMtomStreamingProxy<T>()
+        {
+            System.ServiceModel.BasicHttpBinding httpBinding = ClientHelper.GetMtomStreamedModeBinding();
+            ChannelFactory<T> channelFactory = new ChannelFactory<T>(httpBinding, new System.ServiceModel.EndpointAddress(new Uri($"http://localhost:{_host.GetHttpPort()}/BasicWcfService/StreamingInputOutputService.svc")));
             T proxy = channelFactory.CreateChannel();
             return proxy;
         }
@@ -173,6 +193,18 @@ namespace CoreWCF.Http.Tests
             Assert.Equal(TestString, response);
         }
 
+        private void AsyncOnlyMtomStreamingService()
+        {
+            // Binary data should be large enough to avoid inlining and trigger XOP include.
+            string largeText = new('a', 1024 * 100);
+
+            IMessageContractStreamInReturnService clientProxy = GetMtomStreamingProxy<IMessageContractStreamInReturnService>();
+            MessageContractStreamNoHeader input = ClientHelper.GetMessageContractAsyncStreamNoHeader(largeText);
+            MessageContractStreamOneIntHeader output = clientProxy.Operation(input);
+            string response = ClientHelper.GetStringFrom(output.input);
+            Assert.Equal(largeText, response);
+        }
+
         private void MessageContractStreamMutipleOperationsService()
         {
             IMessageContractStreamMutipleOperationsService clientProxy = GetProxy<IMessageContractStreamMutipleOperationsService>();
@@ -247,6 +279,15 @@ namespace CoreWCF.Http.Tests
                         case "MessageContractStreamMutipleOperationsService":
                             builder.AddService<Services.MessageContractStreamMutipleOperationsService>();
                             builder.AddServiceEndpoint<Services.MessageContractStreamMutipleOperationsService, ServiceContract.IMessageContractStreamMutipleOperationsService>(new BasicHttpBinding(), "/BasicWcfService/StreamingInputOutputService.svc");
+                            break;
+                        case "AsyncOnlyMtomStreamingService":
+                            builder.AddService<Services.MessageContractAsyncOnlyStreamInOutService>();
+                            builder.AddServiceEndpoint<Services.MessageContractAsyncOnlyStreamInOutService, ServiceContract.IMessageContractStreamInReturnService>(new BasicHttpBinding()
+                            {
+                                MessageEncoding = WSMessageEncoding.Mtom,
+                                TransferMode = TransferMode.Streamed,
+                                MaxReceivedMessageSize = 1024 * 120
+                            }, "/BasicWcfService/StreamingInputOutputService.svc");
                             break;
                         default:
                             break;

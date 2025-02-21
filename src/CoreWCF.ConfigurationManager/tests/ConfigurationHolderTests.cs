@@ -1,7 +1,6 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using CoreWCF.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -95,6 +94,42 @@ namespace CoreWCF.ConfigurationManager.Tests
                     IConfigurationHolder settingHolder = GetConfigurationHolder(provider);
 
                     Assert.Throws<BindingNotFoundException>(() => settingHolder.ResolveBinding(nameof(NetTcpBinding), "unknown"));
+                }
+            }
+        }
+
+        [Fact]
+        public void CreateBindingWithNameSpaceTest()
+        {
+            string expectedAddress = "net.tcp://localhost:8740/";
+            string expectedEndpointName = "SomeEndpoint";
+            string expectedServiceName = typeof(SomeService).FullName;
+            string expectedNameSpace = "CustomEndpoint";
+            string xml = $@"
+<configuration> 
+    <system.serviceModel>
+        <services>
+            <service name=""{expectedServiceName}"">
+                  <endpoint address=""{expectedAddress}""
+                          name=""{expectedEndpointName}""
+                          binding=""netTcpBinding""
+                          bindingNamespace=""{expectedNameSpace}""
+                          contract=""{typeof(ISomeService).FullName}"" />
+            </service>
+        </services>
+   </system.serviceModel>
+</configuration>";
+
+            using (var fs = TemporaryFileStream.Create(xml))
+            {
+                using (ServiceProvider provider = CreateProvider(fs.Name))
+                {
+                    IConfigurationHolder settingHolder = GetConfigurationHolder(provider);
+                    IXmlConfigEndpoint endpoint = GetXmlConfigEndpointByEndpointName(settingHolder, expectedEndpointName);
+                    Assert.Equal(expectedServiceName, endpoint.Service.FullName);
+                    Assert.IsType<NetTcpBinding>(endpoint.Binding);
+                    Assert.Equal("NetTcpBinding", endpoint.Binding.Name);
+                    Assert.Equal(expectedNameSpace, endpoint.Binding.Namespace);
                 }
             }
         }

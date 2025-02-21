@@ -12,6 +12,8 @@ using CoreWCF.Channels;
 using CoreWCF.Collections.Generic;
 using CoreWCF.Dispatcher;
 using CoreWCF.Runtime;
+using CoreWCF.Runtime.Collections;
+using Microsoft.AspNetCore.Authorization;
 
 namespace CoreWCF.Description
 {
@@ -210,6 +212,11 @@ namespace CoreWCF.Description
             for(int i=0; i< contractDesc.Operations.Count; i++)
             {
                 OperationDescription opDesc = contractDesc.Operations[i];
+                if (opDesc.DeclaringContract != contractDesc)
+                {
+                    continue;
+                }
+
                 Type targetIface = implIsCallback ? opDesc.DeclaringContract.CallbackContractType : opDesc.DeclaringContract.ContractType;
                 ApplyServiceInheritance(
                     opDesc.AuthorizeOperation,
@@ -219,6 +226,10 @@ namespace CoreWCF.Description
                         GetIOperationAttributesFromType<IAuthorizeOperation>(opDesc, targetIface, currentType);
                         for (int j = 0; j < toAdd.Count; j++)
                         {
+                            // Do not add to the passed in behaviors as that will drop any duplicates
+                            // which we do not want. If there are multiple conflicting instances on the
+                            // same operation, we need to fail, otherwise there's a risk of the intended
+                            // security authorization constraints silently being ignored.
                             opDesc.AuthorizeOperation.Add(toAdd[j]);
                         }
                     });
@@ -994,10 +1005,9 @@ namespace CoreWCF.Description
 
             OperationDescription operationDescription = new OperationDescription(operationName.EncodedName, declaringContract)
             {
-                //operationDescription.IsInitiating = opAttr.IsInitiating;
-                //operationDescription.IsTerminating = opAttr.IsTerminating;
+                IsInitiating = opAttr.IsInitiating,
+                IsTerminating = opAttr.IsTerminating,
                 IsSessionOpenNotificationEnabled = opAttr.IsSessionOpenNotificationEnabled,
-
                 HasNoDisposableParameters = ServiceReflector.HasNoDisposableParameters(methodInfo)
             };
 
@@ -1117,6 +1127,12 @@ namespace CoreWCF.Description
                     requestDescription.Body.WrapperName = requestDescription.Body.WrapperNamespace = null;
                 }
             }
+
+            if (direction == MessageDirection.Input)
+            {
+                operationDescription.AuthorizeData = new GenericHashtable<Type, ReadOnlyCollection<IAuthorizeData>>();
+            }
+
             return operationDescription;
         }
 

@@ -1,9 +1,7 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using System.Collections.Generic;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using CoreWCF.Description;
@@ -75,6 +73,7 @@ namespace CoreWCF.Primitives.Tests
             protected override ServiceDescription CreateDescription(out IDictionary<string, ContractDescription> implementedContracts)
             {
                 var description = ServiceDescription.GetService(_serviceInstance);
+                description.Behaviors.Add(new ServiceAuthorizationBehavior());
                 var cd = ContractDescription.GetContract<SimpleService>(typeof(ISimpleService));
                 implementedContracts = new Dictionary<string, ContractDescription>
                 {

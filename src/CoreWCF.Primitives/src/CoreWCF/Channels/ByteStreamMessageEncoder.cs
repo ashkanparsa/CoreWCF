@@ -12,12 +12,13 @@ namespace CoreWCF.Channels
 {
     internal class ByteStreamMessageEncoder : MessageEncoder, ITraceSourceStringProvider
     {
-        private string _traceSourceString;
         private readonly string _maxSentMessageSizeExceededResourceString;
         private readonly XmlDictionaryReaderQuotas _quotas;
         private readonly XmlDictionaryReaderQuotas _bufferedReadReaderQuotas;
+        /// Specifies if this encoder produces Messages that provide a body reader (with the Message.GetReaderAtBodyContents() method) positioned on content.
+        private readonly bool _moveBodyReaderToContent;
 
-        public ByteStreamMessageEncoder(XmlDictionaryReaderQuotas quotas)
+        public ByteStreamMessageEncoder(XmlDictionaryReaderQuotas quotas, bool moveBodyReaderToContent)
         {
             _quotas = new XmlDictionaryReaderQuotas();
             quotas.CopyTo(_quotas);
@@ -25,6 +26,7 @@ namespace CoreWCF.Channels
             _bufferedReadReaderQuotas = EncoderHelpers.GetBufferedReadQuotas(_quotas);
 
             _maxSentMessageSizeExceededResourceString = SR.MaxSentMessageSizeExceeded;
+            _moveBodyReaderToContent = moveBodyReaderToContent;
         }
 
         public override string ContentType => null;
@@ -47,7 +49,7 @@ namespace CoreWCF.Channels
             //    TD.ByteStreamMessageDecodingStart();
             //}
 
-            Message message = ByteStreamMessage.CreateMessage(stream, _quotas);
+            Message message = ByteStreamMessage.CreateMessage(stream, _quotas, _moveBodyReaderToContent);
             message.Properties.Encoder = this;
 
             //if (SMTD.StreamedMessageReadByEncoderIsEnabled())
@@ -82,7 +84,7 @@ namespace CoreWCF.Channels
 
             var messageData = new ByteStreamBufferedMessageData(buffer, bufferManager);
 
-            Message message = ByteStreamMessage.CreateMessage(messageData, _bufferedReadReaderQuotas);
+            Message message = ByteStreamMessage.CreateMessage(messageData, _bufferedReadReaderQuotas, _moveBodyReaderToContent);
             message.Properties.Encoder = this;
 
             //if (SMTD.MessageReadByEncoderIsEnabled())
@@ -211,23 +213,6 @@ namespace CoreWCF.Channels
 
         public override string ToString() => ByteStreamMessageUtility.EncoderName;
 
-        public Stream GetResponseMessageStream(Message message)
-        {
-            if (message == null)
-            {
-                throw Fx.Exception.ArgumentNull(nameof(message));
-            }
-
-            ThrowIfMismatchedMessageVersion(message);
-
-            if (!ByteStreamMessage.IsInternalByteStreamMessage(message))
-            {
-                return null;
-            }
-
-            return message.GetBody<Stream>();
-        }
-
         string ITraceSourceStringProvider.GetSourceString()
         {
             // Other MessageEncoders use base.GetTraceSourceString but that would require a public api change in MessageEncoder
@@ -237,7 +222,7 @@ namespace CoreWCF.Channels
             //    _traceSourceString = DiagnosticTraceBase.CreateDefaultSourceString(this);
             //}
 
-            return _traceSourceString;
+            return null;
         }
     }
 }

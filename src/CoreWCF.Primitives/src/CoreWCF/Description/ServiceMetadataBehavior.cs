@@ -136,15 +136,8 @@ namespace CoreWCF.Description
             mex.HttpGetEnabled = HttpGetEnabled;
             mex.HttpsGetEnabled = HttpsGetEnabled;
 
-            mex.HttpGetUrl = host.GetVia(Uri.UriSchemeHttp, _httpGetUrl ?? new Uri(string.Empty, UriKind.Relative));
-            mex.HttpsGetUrl = host.GetVia(Uri.UriSchemeHttps, _httpsGetUrl ?? new Uri(string.Empty, UriKind.Relative));
-
-            UseRequestHeadersForMetadataAddressBehavior dynamicUpdateBehavior = description.Behaviors.Find<UseRequestHeadersForMetadataAddressBehavior>();
-            if (dynamicUpdateBehavior != null)
-            {
-                mex.UpdateAddressDynamically = true;
-                mex.UpdatePortsByScheme = new ReadOnlyDictionary<string, int>(dynamicUpdateBehavior.DefaultPortsByScheme);
-            }
+            mex.HttpGetUrl = host.GetVia(Uri.UriSchemeHttp, GetFirstEndpointUriForScheme(Uri.UriSchemeHttp, _httpGetUrl, description));
+            mex.HttpsGetUrl = host.GetVia(Uri.UriSchemeHttps, GetFirstEndpointUriForScheme(Uri.UriSchemeHttps, _httpsGetUrl, description));
 
             foreach (ChannelDispatcherBase dispatcherBase in host.ChannelDispatchers)
             {
@@ -168,6 +161,13 @@ namespace CoreWCF.Description
                 }
             }
         }
+
+        private static Uri GetFirstEndpointUriForScheme(string uriScheme, Uri configuredGetUrl, ServiceDescription description)
+            => configuredGetUrl
+                ?? description?.Endpoints?.FirstOrDefault(endpoint =>
+                        string.Equals(endpoint?.Address?.Uri?.Scheme, uriScheme, StringComparison.Ordinal))
+                   ?.Address?.Uri
+                ?? new Uri(string.Empty, UriKind.Relative);
 
         private static EndpointDispatcher GetListenerByID(SynchronizedCollection<ChannelDispatcherBase> channelDispatchers, string id)
         {
@@ -368,6 +368,12 @@ namespace CoreWCF.Description
 
                         if (exporter is WsdlExporter wsdlExporter)
                         {
+                            // Fix issue with shared exporter. Need to do comparison of Type objects as "is" will return true if it's a derived type
+                            if (exporter.GetType() == typeof(WsdlExporter))
+                            {
+                                exporter = wsdlExporter = wsdlExporter.Clone();
+                            }
+
                             // Pass the BindingParameterCollection into the ExportEndpoints method so that the binding parameters can be using to export WSDL correctly.
                             // The binding parameters are used in BuildChannelListener, during which they can modify the configuration of the channel in ways that might have to
                             // be communicated in the WSDL. For example, in the case of Multi-Auth, the AuthenticationSchemesBindingParameter is used during BuildChannelListener

@@ -2,10 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.ServiceModel.Channels;
-using System.Text;
 using ClientContract;
 using CoreWCF;
 using CoreWCF.Configuration;
@@ -36,7 +33,7 @@ namespace BasicHttp
                 host.Start();
                 System.ServiceModel.BasicHttpBinding httpBinding = ClientHelper.GetBufferedModeBinding();
                 var factory = new System.ServiceModel.ChannelFactory<ClientContract.IServiceWithMessageBodyAndHeader>(httpBinding,
-                    new System.ServiceModel.EndpointAddress(new Uri("http://localhost:8080/BasicWcfService/Service.svc")));
+                    new System.ServiceModel.EndpointAddress(new Uri($"http://localhost:{host.GetHttpPort()}/BasicWcfService/Service.svc")));
                 IServiceWithMessageBodyAndHeader channel = factory.CreateChannel();
 
                 var request = new CoreEchoMessageRequest() { Text = "Message Hello", APIKey = "DEVKEYTOTEST", HeaderArrayValues = new[] { "One", "Two", "Three" } };

@@ -1239,9 +1239,6 @@
   <data name = "CommunicationObjectCannotBeModified" xml:space="preserve">
     <value>The communication object, {0}, cannot be modified unless it is in the Created state.</value>
   </data>
-  <data name = "CommunicationObjectCannotBeUsed" xml:space="preserve">
-    <value>The communication object, {0}, is in the {1} state.  Communication objects cannot be used for communication unless they are in the Opened state.</value>
-  </data>
   <data name = "CommunicationObjectFaulted1" xml:space="preserve">
     <value>The communication object, {0}, cannot be used for communication because it is in the Faulted state.</value>
   </data>
@@ -2736,17 +2733,8 @@
   <data name = "TimeoutServiceChannelConcurrentOpen2" xml:space="preserve">
     <value>Opening the {0} channel timed out after {1}. The time allotted to this operation may have been a portion of a longer timeout.</value>
   </data>
-  <data name = "TimeSpanMustBeGreaterThanTimeSpanZero" xml:space="preserve">
-    <value>TimeSpan must be greater than TimeSpan.Zero.</value>
-  </data>
   <data name = "TimeSpanCannotBeLessThanTimeSpanZero" xml:space="preserve">
     <value>TimeSpan cannot be less than TimeSpan.Zero.</value>
-  </data>
-  <data name = "ValueMustBeNonNegative" xml:space="preserve">
-    <value>The value of this argument must be non-negative.</value>
-  </data>
-  <data name = "ValueMustBePositive" xml:space="preserve">
-    <value>The value of this argument must be positive.</value>
   </data>
   <data name = "ValueMustBeGreaterThanZero" xml:space="preserve">
     <value>The value of this argument must be greater than 0.</value>
@@ -3940,7 +3928,7 @@
     <value>Cannot handle invocation of {0} on interface {1} because the OperationSelector on ClientRuntime is null.</value>
   </data>
   <data name = "SFxNoDefaultConstructor" xml:space="preserve">
-    <value>The service type provided could not be loaded as a service because it does not have a default (parameter-less) constructor. To fix the problem, add a default constructor to the type, or pass an instance of the type to the host.</value>
+    <value>The service type provided could not be loaded as a service because it does not have a default (parameter-less) constructor. To fix the problem, add a default constructor to the type, or register a service of the type (e.g. IServiceCollection.AddSingleton&lt;ServiceType&gt;()).</value>
   </data>
   <data name = "SFxNoMostDerivedContract" xml:space="preserve">
     <value>The contract specified by type '{0}' is ambiguous.  The type derives from at least two different types that each define its own service contract.  For this type to be used as a contract type, exactly one of its inherited contracts must be more derived than any of the others.</value>
@@ -4148,12 +4136,6 @@
   </data>
   <data name = "SFxTimeoutInvalidStringFormat" xml:space="preserve">
     <value>The timeout value provided was not of a recognized format.  Please see InnerException for more details.</value>
-  </data>
-  <data name = "SFxTimeoutOutOfRange0" xml:space="preserve">
-    <value>Timeout must be greater than or equal to TimeSpan.Zero. To disable timeout, specify TimeSpan.MaxValue.</value>
-  </data>
-  <data name = "SFxTimeoutOutOfRangeTooBig" xml:space="preserve">
-    <value>Timeouts larger than Int32.MaxValue TotalMilliseconds (approximately 24 days) cannot be honored. To disable timeout, specify TimeSpan.MaxValue.</value>
   </data>
   <data name = "SFxTooManyPartsWithSameName" xml:space="preserve">
     <value>Cannot create a unique part name for {0}.</value>
@@ -5582,6 +5564,12 @@
   </data>
   <data name = "CannotAccessDirectory" xml:space="preserve">
     <value>Cannot access directory {0}.</value>
+  </data>
+  <data name = "FileNotFound" xml:space="preserve">
+    <value>File {0} not found.</value>
+  </data>
+  <data name = "CannotAccessFile" xml:space="preserve">
+    <value>Cannot access file {0}.</value>
   </data>
   <data name = "CLSIDDoesNotSupportIPersistStream" xml:space="preserve">
     <value>The object with CLSID '{0}' does not support the required IPersistStream interface.</value>

@@ -219,7 +219,7 @@ namespace CoreWCF.Dispatcher
         {
             if (!_openCalled)
             {
-                throw TraceUtility.ThrowHelperError(new InvalidOperationException(SR.Format(SR.CommunicationObjectCannotBeUsed, GetType().ToString(), CommunicationState.Created)), Guid.Empty, this);
+                throw TraceUtility.ThrowHelperError(new InvalidOperationException(SR.Format(SRCommon.CommunicationObjectCannotBeUsed, GetType().ToString(), CommunicationState.Created)), Guid.Empty, this);
             }
 
             await TryAcquirePumpAsync();
@@ -399,7 +399,7 @@ namespace CoreWCF.Dispatcher
             {
                 if (_channel != null)
                 {
-                    _channel.HandleReceiveComplete(request);
+                    await _channel.HandleReceiveCompleteAsync(request);
                 }
                 else
                 {

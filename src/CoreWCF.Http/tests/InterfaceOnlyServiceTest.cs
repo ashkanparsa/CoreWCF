@@ -34,7 +34,7 @@ namespace BasicHttp
                 System.ServiceModel.BasicHttpBinding httpBinding = ClientHelper.GetBufferedModeBinding();
                 var factory = new System.ServiceModel.ChannelFactory<ClientContract.IEchoService>(httpBinding,
                     new System.ServiceModel.EndpointAddress(
-                        new Uri("http://localhost:8080/BasicWcfService/basichttp.svc")));
+                        new Uri($"http://localhost:{host.GetHttpPort()}/BasicWcfService/basichttp.svc")));
                 ClientContract.IEchoService channel = factory.CreateChannel();
                 string result = channel.EchoString(testString);
                 Assert.Equal(testString, result);
@@ -83,6 +83,11 @@ namespace BasicHttp
             {
                 NumberOfIntercepts++;
                 return _underlyingService.EchoToFail(echo);
+            }
+
+            public string EchoForImpersonation(string echo)
+            {
+                return echo;
             }
         }
 

@@ -31,7 +31,11 @@ namespace CoreWCF.Runtime.Serialization
         public bool IsBuiltInDataContract => s_getIsBuiltInDataContract(WrappedDataContract);
         public bool IsReference => s_getIsReference(WrappedDataContract);
         public bool IsISerializable => s_getIsISerializable(WrappedDataContract);
-        public bool IsValueType => s_getIsValueType(WrappedDataContract);
+        public bool IsValueType
+        {
+            get => s_getIsValueType(WrappedDataContract);
+            set => s_setIsValueType(WrappedDataContract, value);
+        }
 
         public sealed override bool Equals(object other)
         {
@@ -88,6 +92,7 @@ namespace CoreWCF.Runtime.Serialization
         protected static readonly Type EnumDataContractType = typeof(DataContractSerializer).Assembly.GetType("System.Runtime.Serialization.EnumDataContract");
         protected static readonly Type PrimitiveDataContractType = typeof(DataContractSerializer).Assembly.GetType("System.Runtime.Serialization.PrimitiveDataContract");
         protected static readonly Type XmlDataContractType = typeof(DataContractSerializer).Assembly.GetType("System.Runtime.Serialization.XmlDataContract");
+        protected static readonly Type SchemaExportertType = typeof(DataContractSerializer).Assembly.GetType("System.Runtime.Serialization.SchemaExporter");
         private static readonly Type SerializationModeType = typeof(DataContractSerializer).Assembly.GetType("System.Runtime.Serialization.SerializationMode");
 
         private static readonly Func<object, Type> s_getUnderlyingType = ReflectionHelper.GetPropertyDelegate<Type>(DataContractType, "UnderlyingType");
@@ -99,6 +104,7 @@ namespace CoreWCF.Runtime.Serialization
         private static readonly Func<object, bool> s_getIsReference = ReflectionHelper.GetPropertyDelegate<bool>(DataContractType, "IsReference");
         private static readonly Func<object, bool> s_getIsISerializable = ReflectionHelper.GetPropertyDelegate<bool>(DataContractType, "IsISerializable");
         private static readonly Func<object, bool> s_getIsValueType = ReflectionHelper.GetPropertyDelegate<bool>(DataContractType, "IsValueType");
+        private static readonly Action<object, bool> s_setIsValueType = ReflectionHelper.SetPropertyDelegate<bool>(DataContractType, "IsValueType");
         private static readonly Func<object, IDictionary> s_getKnownDataContracts = ReflectionHelper.GetPropertyDelegate<IDictionary>(DataContractType, "KnownDataContracts");
 
         private static DataContractEx GetDataContractStub(Type clrType)
@@ -327,6 +333,17 @@ namespace CoreWCF.Runtime.Serialization
         public CollectionDataContractEx(object dataContract) : base(dataContract)
         {
             Fx.Assert(CollectionDataContractType.Equals(dataContract.GetType()), "Only CollectionDataContract can be wrapped");
+            if(ItemContract?.UnderlyingType != null && ItemContract.UnderlyingType.Name.StartsWith("KeyValuePairAdapter"))
+            {
+                ItemContract.IsValueType = true;
+                if (ItemContract is ClassDataContractEx classDataContract)
+                {
+                    foreach (var member in classDataContract.Members)
+                    {
+                        member.IsRequired = true;
+                    }
+                }
+            }
         }
 
         public DataContractEx ItemContract
@@ -492,10 +509,18 @@ namespace CoreWCF.Runtime.Serialization
         public XmlDataContractEx(object dataContract) : base(dataContract)
         {
             Fx.Assert(XmlDataContractType.Equals(dataContract.GetType()), "Only XmlDataContract can be wrapped");
+            if (XsdType == null)
+            {
+                XsdType = GetXmlTypeInfo(UnderlyingType);
+            }
         }
 
         public bool IsAnonymous => s_getIsAnonymous(WrappedDataContract);
-        public XmlSchemaType XsdType => s_getXsdType(WrappedDataContract);
+        public XmlSchemaType XsdType
+        {
+            get => s_getXsdType(WrappedDataContract);
+            set => s_setXsdType(WrappedDataContract, value);
+        }
 
         internal override bool Equals(object other, Dictionary<DataContractPairKey, object> checkedContracts)
         {
@@ -520,8 +545,19 @@ namespace CoreWCF.Runtime.Serialization
             return false;
         }
 
+        private static XmlSchemaType GetXmlTypeInfo(Type type)
+        {
+            var getXmlTypeInfoMethod = SchemaExportertType.GetMethod("GetXmlTypeInfo", BindingFlags.Static | BindingFlags.NonPublic);
+            var getXmlTypeInfo = getXmlTypeInfoMethod.CreateDelegate(typeof(GetXmlTypeInfoDelegate), null) as GetXmlTypeInfoDelegate;
+            XmlSchemaType xsdType;
+            getXmlTypeInfo(type, out _, out xsdType, out _);
+            return xsdType;
+        }
+
+        private delegate void GetXmlTypeInfoDelegate(Type type, out XmlQualifiedName stableName, out XmlSchemaType xsdType, out bool hasRoot);
         private static readonly Func<object, bool> s_getIsAnonymous = ReflectionHelper.GetPropertyDelegate<bool>(XmlDataContractType, "IsAnonymous");
         private static readonly Func<object, XmlSchemaType> s_getXsdType = ReflectionHelper.GetPropertyDelegate<XmlSchemaType>(XmlDataContractType, "XsdType");
+        private static readonly Action<object, XmlSchemaType> s_setXsdType = ReflectionHelper.SetPropertyDelegate<XmlSchemaType>(XmlDataContractType, "XsdType");
     }
 
     internal class DataMemberEx
@@ -541,7 +577,12 @@ namespace CoreWCF.Runtime.Serialization
         public bool EmitDefaultValue => s_getEmitDefaultValue(WrappedDataMember);
         public bool IsGetOnlyCollection => s_getIsGetOnlyCollection(WrappedDataMember);
         public bool IsNullable => s_getIsNullable(WrappedDataMember);
-        public bool IsRequired => s_getIsRequired(WrappedDataMember);
+        public bool IsRequired
+        {
+            get => s_getIsRequired(WrappedDataMember);
+            set => s_setIsRequired(WrappedDataMember, value);
+        }
+
         public string Name => s_getName(WrappedDataMember);
 
         public DataContractEx MemberTypeContract
@@ -588,6 +629,7 @@ namespace CoreWCF.Runtime.Serialization
         private static readonly Func<object, bool> s_getEmitDefaultValue = ReflectionHelper.GetPropertyDelegate<bool>(s_dataMemberType, "EmitDefaultValue");
         private static readonly Func<object, bool> s_getIsGetOnlyCollection = ReflectionHelper.GetPropertyDelegate<bool>(s_dataMemberType, "IsGetOnlyCollection");
         private static readonly Func<object, bool> s_getIsRequired = ReflectionHelper.GetPropertyDelegate<bool>(s_dataMemberType, "IsRequired");
+        private static readonly Action<object, bool> s_setIsRequired = ReflectionHelper.SetPropertyDelegate<bool>(s_dataMemberType, "IsRequired");
         private static readonly Func<object, bool> s_getIsNullable = ReflectionHelper.GetPropertyDelegate<bool>(s_dataMemberType, "IsNullable");
         private static readonly Func<object, string> s_getName = ReflectionHelper.GetPropertyDelegate<string>(s_dataMemberType, "Name");
         private static readonly Func<object, object> s_getMemberTypeContract = ReflectionHelper.GetPropertyDelegate<object>(s_dataMemberType, "MemberTypeContract");

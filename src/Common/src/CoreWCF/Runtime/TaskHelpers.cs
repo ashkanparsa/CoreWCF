@@ -27,7 +27,7 @@ namespace CoreWCF.Runtime
             }
         }
 
-        // Helper method when implementing an APM wrapper around a Task based async method which returns a result. 
+        // Helper method when implementing an APM wrapper around a Task based async method which returns a result.
         // In the BeginMethod method, you would call use ToApm to wrap a call to MethodAsync:
         //     return MethodAsync(params).ToApm(callback, state);
         // In the EndMethod, you would use ToApmEnd<TResult> to ensure the correct exception handling
@@ -49,7 +49,7 @@ namespace CoreWCF.Runtime
             else if (callback != null)
             {
                 // We use OnCompleted rather than ContinueWith in order to avoid running synchronously
-                // if the task has already completed by the time we get here. 
+                // if the task has already completed by the time we get here.
                 // This will allocate a delegate and some extra data to add it as a TaskContinuation
                 valueTask.ConfigureAwait(false)
                     .GetAwaiter()
@@ -72,7 +72,7 @@ namespace CoreWCF.Runtime
             else if (callback != null)
             {
                 // We use OnCompleted rather than ContinueWith in order to avoid running synchronously
-                // if the task has already completed by the time we get here. 
+                // if the task has already completed by the time we get here.
                 // This will allocate a delegate and some extra data to add it as a TaskContinuation
                 task.ConfigureAwait(false)
                     .GetAwaiter()
@@ -161,6 +161,7 @@ namespace CoreWCF.Runtime
         // complete in the specified amount of time, returns false. This does not modify the state of the
         // passed in class, but instead is a mechanism to allow interrupting awaiting a task if a timeout
         // period passes.
+        // TODO: When we move away from netstandard, we can switch to the new Task.WaitAsync method
         public static async Task<bool> AwaitWithTimeout(this Task task, TimeSpan timeout)
         {
             if (task.IsCompleted)
@@ -194,6 +195,9 @@ namespace CoreWCF.Runtime
         // then use the NoSpin variant.
         public static void WaitForCompletion(this Task task)
         {
+            Fx.Assert(task.IsCompleted || !IOThreadScheduler.IsRunningOnIOThread, "Waiting on an IO Thread might cause problems");
+            // Waiting on an IO Thread can cause performance problems as we might block the IOThreadScheduler
+            // dequeuing loop.
             task.GetAwaiter().GetResult();
         }
 
@@ -205,6 +209,9 @@ namespace CoreWCF.Runtime
         {
             if (!task.IsCompleted)
             {
+                Fx.Assert(!IOThreadScheduler.IsRunningOnIOThread, "Waiting on an IO Thread might cause problems");
+                // Waiting on an IO Thread can cause performance problems as we might block the IOThreadScheduler
+                // dequeuing loop.
                 ((IAsyncResult)task).AsyncWaitHandle.WaitOne();
             }
 
@@ -214,6 +221,9 @@ namespace CoreWCF.Runtime
 
         public static TResult WaitForCompletion<TResult>(this Task<TResult> task)
         {
+            Fx.Assert(task.IsCompleted || !IOThreadScheduler.IsRunningOnIOThread, "Waiting on an IO Thread might cause problems");
+            // Waiting on an IO Thread can cause performance problems as we might block the IOThreadScheduler
+            // dequeuing loop.
             return task.GetAwaiter().GetResult();
         }
 
@@ -221,6 +231,9 @@ namespace CoreWCF.Runtime
         {
             if (!task.IsCompleted)
             {
+                Fx.Assert(!IOThreadScheduler.IsRunningOnIOThread, "Waiting on an IO Thread might cause problems");
+                // Waiting on an IO Thread can cause performance problems as we might block the IOThreadScheduler
+                // dequeuing loop.
                 ((IAsyncResult)task).AsyncWaitHandle.WaitOne();
             }
 
@@ -238,6 +251,9 @@ namespace CoreWCF.Runtime
             bool completed = true;
             if (!task.IsCompleted)
             {
+                Fx.Assert(!IOThreadScheduler.IsRunningOnIOThread, "Waiting on an IO Thread might cause problems");
+                // Waiting on an IO Thread can cause performance problems as we might block the IOThreadScheduler
+                // dequeuing loop.
                 completed = ((IAsyncResult)task).AsyncWaitHandle.WaitOne(timeout);
             }
 
@@ -309,16 +325,25 @@ namespace CoreWCF.Runtime
             return new SyncContextScope();
         }
 
-        // Calls the given Action asynchronously.
+        // Calls the given Action asynchronously on the ThreadPool.
         public static async Task CallActionAsync<TArg>(Action<TArg> action, TArg argument)
         {
-            using (IDisposable scope = RunTaskContinuationsOnOurThreads())
+            // Make sure any async tasks started from the action have their continuation
+            // execute on the IOThreadScheduler, but make sure the action itself is running
+            // on the thread pool.
+            if (!Thread.CurrentThread.IsThreadPoolThread)
             {
-                if (scope != null)  // No need to change threads if already off of thread pool
-                {
-                    await Task.Yield(); // Move synchronous method off of thread pool
-                }
+                // Switch to a thread pool thread to run passed action
+                SynchronizationContext.SetSynchronizationContext(null);
+                await Task.Yield();
+            }
 
+            // Now we're running on the ThreadPool, we reset the SynchronizationContext to
+            // our sync context which posts to the IOThreadScheduler. We're not hopping threads
+            // so any synchronous blocking will occur on the current thread pool thread.
+            Fx.Assert(Thread.CurrentThread.IsThreadPoolThread, "We should be running on the thread pool");
+            using (var scope = RunTaskContinuationsOnOurThreads())
+            {
                 action(argument);
             }
         }

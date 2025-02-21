@@ -7,25 +7,27 @@ using CoreWCF.Configuration;
 
 namespace CoreWCF.Channels
 {
-    public partial class TcpTransportBindingElement : ConnectionOrientedTransportBindingElement
+    public class TcpTransportBindingElement : ConnectionOrientedTransportBindingElement
     {
         private int _listenBacklog;
+        private TcpConnectionPoolSettings _connectionPoolSettings;
         private ExtendedProtectionPolicy _extendedProtectionPolicy;
 
         public TcpTransportBindingElement() : base()
         {
             _listenBacklog = TcpTransportDefaults.GetListenBacklog();
-            ConnectionPoolSettings = new TcpConnectionPoolSettings();
+            _connectionPoolSettings = new TcpConnectionPoolSettings();
             _extendedProtectionPolicy = ChannelBindingUtility.DefaultPolicy;
         }
         protected TcpTransportBindingElement(TcpTransportBindingElement elementToBeCloned) : base(elementToBeCloned)
         {
             _listenBacklog = elementToBeCloned._listenBacklog;
-            ConnectionPoolSettings = elementToBeCloned.ConnectionPoolSettings.Clone();
+            _connectionPoolSettings = elementToBeCloned._connectionPoolSettings.Clone();
             _extendedProtectionPolicy = elementToBeCloned.ExtendedProtectionPolicy;
         }
 
-        public TcpConnectionPoolSettings ConnectionPoolSettings { get; }
+        [Obsolete("ConnectionPoolSettings now set on TcpListenOptions which is modifiable via a configuration delegate when calling UseNetTcp")]
+        public TcpConnectionPoolSettings ConnectionPoolSettings => _connectionPoolSettings;
 
         public int ListenBacklog
         {
@@ -39,7 +41,7 @@ namespace CoreWCF.Channels
                 if (value <= 0)
                 {
                     throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new ArgumentOutOfRangeException(nameof(value),
-                        SR.ValueMustBePositive));
+                        SRCommon.ValueMustBePositive));
                 }
 
                 _listenBacklog = value;
@@ -75,7 +77,7 @@ namespace CoreWCF.Channels
             }
         }
 
-        internal override string WsdlTransportUri => TransportPolicyConstants.TcpTransportUri;
+        protected override string WsdlTransportUri => "http://schemas.microsoft.com/soap/tcp";
 
         public override BindingElement Clone()
         {
@@ -93,7 +95,7 @@ namespace CoreWCF.Channels
             //{
             //    return (T)(object)new BindingDeliveryCapabilitiesHelper();
             //}
-            else if (typeof(T) == typeof(ExtendedProtectionPolicy))
+            if (typeof(T) == typeof(ExtendedProtectionPolicy))
             {
                 return (T)(object)ExtendedProtectionPolicy;
             }
@@ -101,9 +103,9 @@ namespace CoreWCF.Channels
             {
                 return (T)(object)new TransportCompressionSupportHelper();
             }
-            else if (typeof(T) == typeof(IConnectionReuseHandler))
+            else if (typeof(T) == typeof(ConnectionPoolSettings))
             {
-                return (T)(object)new ConnectionReuseHandler(new TcpTransportBindingElement(this));
+                return (T)(object)_connectionPoolSettings;
             }
             else
             {

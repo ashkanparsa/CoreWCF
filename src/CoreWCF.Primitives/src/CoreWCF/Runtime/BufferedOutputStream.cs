@@ -28,8 +28,7 @@ namespace CoreWCF.Runtime
             _chunks = new byte[4][];
         }
 
-        public BufferedOutputStream(int initialSize, int maxSize, InternalBufferManager bufferManager)
-            : this()
+        public BufferedOutputStream(int initialSize, int maxSize, InternalBufferManager bufferManager) : this()
         {
             Reinitialize(initialSize, maxSize, bufferManager);
         }
@@ -266,7 +265,7 @@ namespace CoreWCF.Runtime
 
             if (size < 0)
             {
-                throw Fx.Exception.ArgumentOutOfRange(nameof(size), size, SR.ValueMustBeNonNegative);
+                throw Fx.Exception.ArgumentOutOfRange(nameof(size), size, SRCommon.ValueMustBeNonNegative);
             }
 
             if ((int.MaxValue - size) < _totalSize)

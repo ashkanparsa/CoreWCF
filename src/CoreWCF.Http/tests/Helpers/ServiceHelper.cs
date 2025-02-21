@@ -11,12 +11,18 @@ using System;
 using System.IO;
 using System.Diagnostics;
 using System.Net;
+using System.Runtime.CompilerServices;
 #if NET472
 using System.Security.Authentication;
 #endif // NET472
 using System.Text;
 using Xunit.Abstractions;
 using System.Security.Cryptography.X509Certificates;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
+using CoreWCF.Http.Tests.Helpers;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Helpers
 {
@@ -84,127 +90,23 @@ namespace Helpers
 #if NET5_0_OR_GREATER
         [System.Runtime.Versioning.SupportedOSPlatform("windows")]
 #endif
-        public static IWebHostBuilder CreateHttpSysBuilder<TStartup>(ITestOutputHelper outputHelper = default) where TStartup : class =>
-            WebHost.CreateDefaultBuilder(Array.Empty<string>())
-#if DEBUG
-            .ConfigureLogging((ILoggingBuilder logging) =>
-            {
-                if (outputHelper != default)
-                    logging.AddProvider(new XunitLoggerProvider(outputHelper));
-                logging.AddFilter("Default", LogLevel.Debug);
-                logging.AddFilter("Microsoft", LogLevel.Debug);
-                logging.SetMinimumLevel(LogLevel.Debug);
-            })
-#endif // DEBUG
+        public static IWebHostBuilder CreateHttpSysBuilder<TStartup>(ITestOutputHelper outputHelper = default, [CallerMemberName] string callerMethodName = "") where TStartup : class =>
+            CreateBaseWebHostBuilder<TStartup>(outputHelper, callerMethodName)
             .UseHttpSys(options =>
             {
                 options.Authentication.Schemes = Microsoft.AspNetCore.Server.HttpSys.AuthenticationSchemes.None;
                 options.Authentication.AllowAnonymous = true;
-                options.AllowSynchronousIO = true;
                 options.UrlPrefixes.Add("http://+:80/Temporary_Listen_Addresses/CoreWCFTestServices");
                 options.UrlPrefixes.Add("http://+:80/Temporary_Listen_Addresses/CoreWCFTestServices/MorePath");
-            })
-            .UseStartup<TStartup>();
+            });
 
-        public static IWebHostBuilder CreateWebHostBuilder<TStartup>(ITestOutputHelper outputHelper = default) where TStartup : class =>
-            WebHost.CreateDefaultBuilder(Array.Empty<string>())
-#if DEBUG
-            .ConfigureLogging((ILoggingBuilder logging) =>
-            {
-                if(outputHelper != default)
-                    logging.AddProvider(new XunitLoggerProvider(outputHelper));
-                logging.AddFilter("Default", LogLevel.Debug);
-                logging.AddFilter("Microsoft", LogLevel.Debug);
-                logging.SetMinimumLevel(LogLevel.Debug);
-            })
-#endif // DEBUG
-            .UseKestrel(options =>
-            {
-                    options.AllowSynchronousIO = true;
-                    options.Listen(IPAddress.Loopback, 8080, listenOptions =>
-                    {
-                        if (Debugger.IsAttached)
-                        {
-                            listenOptions.UseConnectionLogging();
-                        }
-                    });
-                })
-            .UseStartup<TStartup>();
-
-        public static IWebHostBuilder CreateWebHostBuilder(ITestOutputHelper outputHelper, Type startupType) =>
-            WebHost.CreateDefaultBuilder(Array.Empty<string>())
-#if DEBUG
-            .ConfigureLogging((ILoggingBuilder logging) =>
-            {
-                logging.AddProvider(new XunitLoggerProvider(outputHelper));
-                logging.AddFilter("Default", LogLevel.Debug);
-                logging.AddFilter("Microsoft", LogLevel.Debug);
-                logging.SetMinimumLevel(LogLevel.Debug);
-            })
-#endif // DEBUG
-            .UseKestrel(options =>
-            {
-                options.AllowSynchronousIO = true;
-                options.Listen(IPAddress.Loopback, 8080, listenOptions =>
-                {
-                    if (Debugger.IsAttached)
-                    {
-                        listenOptions.UseConnectionLogging();
-                    }
-                });
-            })
-            .UseStartup(startupType);
-
-        public static IWebHostBuilder CreateHttpsWebHostBuilder<TStartup>(ITestOutputHelper outputHelper = default) where TStartup : class =>
-            WebHost.CreateDefaultBuilder(Array.Empty<string>())
-#if DEBUG
-            .ConfigureLogging((ILoggingBuilder logging) =>
-            {
-                if(outputHelper != default)
-                    logging.AddProvider(new XunitLoggerProvider(outputHelper));
-                logging.AddFilter("Default", LogLevel.Debug);
-                logging.AddFilter("Microsoft", LogLevel.Debug);
-                logging.SetMinimumLevel(LogLevel.Debug);
-            })
-#endif // DEBUG
-            .UseKestrel(options =>
-            {
-                options.Listen(address: IPAddress.Loopback, 8444, listenOptions =>
-                {
-                    listenOptions.UseHttps(httpsOptions =>
-                    {
-#if NET472
-                        httpsOptions.SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls11 | SslProtocols.Tls;
-#endif // NET472
-                    });
-                    if (Debugger.IsAttached)
-                    {
-                        listenOptions.UseConnectionLogging();
-                    }
-                });
-                options.Listen(address: IPAddress.Any, 8443, listenOptions =>
-                {
-                    listenOptions.UseHttps(httpsOptions =>
-                    {
-#if NET472
-                        httpsOptions.SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls11 | SslProtocols.Tls;
-#endif // NET472
-                    });
-                    if (Debugger.IsAttached)
-                    {
-                        listenOptions.UseConnectionLogging();
-                    }
-                });
-            })
-            .UseStartup<TStartup>();
-
-        public static IWebHostBuilder CreateHttpsWebHostBuilder(ITestOutputHelper outputHelper, Type startupType) =>
-            WebHost.CreateDefaultBuilder(Array.Empty<string>())
+        public static IWebHostBuilder CreateDefaultWebHostBuilder<TStartup>(ITestOutputHelper outputHelper = default, [CallerMemberName] string callerMethodName = "") where TStartup : class =>
+            WebHost.CreateDefaultBuilder()
 #if DEBUG
             .ConfigureLogging((ILoggingBuilder logging) =>
             {
                 if (outputHelper != default)
-                    logging.AddProvider(new XunitLoggerProvider(outputHelper));
+                    logging.AddProvider(new XunitLoggerProvider(outputHelper, callerMethodName));
                 logging.AddFilter("Default", LogLevel.Debug);
                 logging.AddFilter("Microsoft", LogLevel.Debug);
                 logging.SetMinimumLevel(LogLevel.Debug);
@@ -212,34 +114,151 @@ namespace Helpers
 #endif // DEBUG
             .UseKestrel(options =>
             {
-                options.Listen(address: IPAddress.Loopback, 8444, listenOptions =>
+                options.Listen(IPAddress.Loopback, 0, listenOptions =>
                 {
-                    listenOptions.UseHttps(httpsOptions =>
-                    {
-#if NET472
-                        httpsOptions.SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls11 | SslProtocols.Tls;
-#endif // NET472
-                    });
-                    if (Debugger.IsAttached)
-                    {
-                        listenOptions.UseConnectionLogging();
-                    }
-                });
-                options.Listen(address: IPAddress.Loopback, 8443, listenOptions =>
-                {
-                    listenOptions.UseHttps(httpsOptions =>
-                    {
-#if NET472
-                        httpsOptions.SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls11 | SslProtocols.Tls;
-#endif // NET472
-                    });
                     if (Debugger.IsAttached)
                     {
                         listenOptions.UseConnectionLogging();
                     }
                 });
             })
-            .UseStartup(startupType);
+            .UseStartup<TStartup>();
+
+        public static IWebHostBuilder CreateWebHostBuilder<TStartup>(ITestOutputHelper outputHelper = default, [CallerMemberName] string callerMethodName = "") where TStartup : class =>
+            CreateBaseWebHostBuilder<TStartup>(outputHelper, callerMethodName)
+            .UseKestrel(options =>
+            {
+                options.Listen(IPAddress.Loopback, 0, listenOptions =>
+                {
+                    if (Debugger.IsAttached)
+                    {
+                        listenOptions.UseConnectionLogging();
+                    }
+                });
+            });
+
+        public static IWebHostBuilder CreateWebHostBuilder(ITestOutputHelper outputHelper, Type startupType, [CallerMemberName] string callerMethodName = "") =>
+            CreateBaseWebHostBuilder(startupType, outputHelper, callerMethodName)
+            .UseKestrel(options =>
+            {
+                options.Listen(IPAddress.Loopback, 0, listenOptions =>
+                {
+                    if (Debugger.IsAttached)
+                    {
+                        listenOptions.UseConnectionLogging();
+                    }
+                });
+            });
+
+        public static IWebHostBuilder CreateHttpsWebHostBuilder<TStartup>(ITestOutputHelper outputHelper = default, [CallerMemberName] string callerMethodName = "") where TStartup : class =>
+            CreateBaseWebHostBuilder<TStartup>(outputHelper, callerMethodName)
+            .UseKestrel(options =>
+            {
+                options.Listen(address: IPAddress.Loopback, 0, listenOptions =>
+                {
+                    listenOptions.UseHttps(httpsOptions =>
+                    {
+#if NET472
+                        httpsOptions.SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls11 | SslProtocols.Tls;
+#endif // NET472
+                    });
+                    if (Debugger.IsAttached)
+                    {
+                        listenOptions.UseConnectionLogging();
+                    }
+                });
+            });
+
+#if NET5_0_OR_GREATER
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+#endif
+        public static IWebHostBuilder CreateHttpsWebHostBuilderWithHttpSys<TStartup>(ITestOutputHelper outputHelper = default, [CallerMemberName] string callerMethodName = "") where TStartup : class =>
+            CreateBaseWebHostBuilder<TStartup>(outputHelper, callerMethodName)
+            .UseHttpSys(options =>
+            {
+                options.Authentication.Schemes = Microsoft.AspNetCore.Server.HttpSys.AuthenticationSchemes.Negotiate
+                                                 | Microsoft.AspNetCore.Server.HttpSys.AuthenticationSchemes.NTLM;
+                options.MaxConnections = null;
+                options.MaxRequestBodySize = 30000000;
+                options.UrlPrefixes.Add("https://localhost:44300");
+            });
+
+#if NET5_0_OR_GREATER
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+#endif
+        public static IWebHostBuilder CreateWebHostBuilderWithHttpSys<TStartup>(ITestOutputHelper outputHelper = default, [CallerMemberName] string callerMethodName = "") where TStartup : class =>
+            CreateBaseWebHostBuilder<TStartup>(outputHelper, callerMethodName)
+            .UseHttpSys(options =>
+            {
+                options.AllowSynchronousIO = true;
+                options.Authentication.AllowAnonymous = true;
+                options.Authentication.Schemes = Microsoft.AspNetCore.Server.HttpSys.AuthenticationSchemes.None;
+                options.MaxConnections = null;
+                options.MaxRequestBodySize = 30000000;
+                options.UrlPrefixes.Add("http://localhost:8085");
+            });
+
+        public static IWebHostBuilder CreateHttpsWebHostBuilder(ITestOutputHelper outputHelper, Type startupType, [CallerMemberName] string callerMethodName = "") =>
+            CreateBaseWebHostBuilder(startupType, outputHelper, callerMethodName)
+            .UseKestrel(options =>
+            {
+                options.Listen(address: IPAddress.Loopback, 0, listenOptions =>
+                {
+                    listenOptions.UseHttps(httpsOptions =>
+                    {
+#if NET472
+                        httpsOptions.SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls11 | SslProtocols.Tls;
+#endif // NET472
+                    });
+                    if (Debugger.IsAttached)
+                    {
+                        listenOptions.UseConnectionLogging();
+                    }
+                });
+            });
+
+        private static IWebHostBuilder CreateBaseWebHostBuilder<TStartup>(ITestOutputHelper outputHelper, string callerMethodName) where TStartup : class =>
+            CreateBaseWebHostBuilder(typeof(TStartup), outputHelper, callerMethodName);
+
+        private static IWebHostBuilder CreateBaseWebHostBuilder(Type startupType, ITestOutputHelper outputHelper, string callerMethodName)
+        {
+            if (!startupType.IsClass)
+                throw new InvalidOperationException("startupeType must be a class");
+
+            return new WebHostBuilder()
+                .ConfigureAppConfiguration((hostingContext, config) =>
+                {
+                    config.AddEnvironmentVariables();
+                })
+                .ConfigureLogging(logging =>
+                {
+#if DEBUG
+                    if (outputHelper != default)
+                        logging.AddProvider(new XunitLoggerProvider(outputHelper, callerMethodName));
+                    logging.AddFilter("Default", LogLevel.Debug);
+                    logging.AddFilter("Microsoft", LogLevel.Debug);
+                    logging.SetMinimumLevel(LogLevel.Debug);
+                    logging.AddDebug();
+#endif // DEBUG
+                })
+                .UseDefaultServiceProvider((context, options) =>
+                {
+                    options.ValidateScopes = context.HostingEnvironment.IsDevelopment();
+                })
+                .UseStartup(startupType);
+        }
+
+        public static IWebHostBuilder AllowSynchronousIO(this IWebHostBuilder webHostBuilder)
+        {
+            webHostBuilder.ConfigureServices(services =>
+            {
+                services.Configure<KestrelServerOptions>(options =>
+                {
+                    options.AllowSynchronousIO = true;
+                });
+            });
+            return webHostBuilder;
+        }
 
         public static void CloseServiceModelObjects(params System.ServiceModel.ICommunicationObject[] objects)
         {
@@ -295,6 +314,15 @@ namespace Helpers
             Stream stream = new NoneSerializableStream();
             PopulateStreamWithStringBytes(stream, s);
             return stream;
+        }
+
+        public static Stream GetAsyncStreamWithStringBytes(string s)
+        {
+            Stream inner = new MemoryStream();
+            PopulateStreamWithStringBytes(inner, s);
+
+            // .NET Framework XmlWriter does not seem to support the async API's.
+            return Environment.Version.Major >= 6 ? new AsyncOnlyStream(inner) : inner;
         }
 
         public static string GetStringFrom(Stream s)

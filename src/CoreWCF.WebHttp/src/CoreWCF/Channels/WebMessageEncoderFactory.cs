@@ -113,7 +113,10 @@ namespace CoreWCF.Channels
                         {
                             if (_rawMessageEncoder == null)
                             {
-                                _rawMessageEncoder = new ByteStreamMessageEncodingBindingElement(_readerQuotas).CreateMessageEncoderFactory().Encoder;
+                                var bsmebe = new ByteStreamMessageEncodingBindingElement(_readerQuotas);
+                                // Backdoor method to do the equivalent of calling IWebMessageEncoderHelper.EnableBodyReaderMoveToContent without exposing any public api.
+                                _ = bsmebe.GetProperty<WebMessageEncoder>(new BindingContext(new CustomBinding(), new BindingParameterCollection()));
+                                _rawMessageEncoder = bsmebe.CreateMessageEncoderFactory().Encoder;
                             }
                         }
                     }
@@ -234,7 +237,7 @@ namespace CoreWCF.Channels
                 if (maxMessageSize < 0)
                 {
                     throw TraceUtility.ThrowHelperError(new ArgumentOutOfRangeException(nameof(maxMessageSize), maxMessageSize,
-                        SR.Format(SR.ValueMustBeNonNegative)), message);
+                        SR.Format(SRCommon.ValueMustBeNonNegative)), message);
                 }
 
                 if (messageOffset < 0 || messageOffset > maxMessageSize)

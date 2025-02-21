@@ -1,10 +1,14 @@
-﻿using System;
+﻿// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+
+using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
+using CoreWCF.BuildTools.Tests;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Testing;
 using Microsoft.CodeAnalysis.Testing;
-using Microsoft.CodeAnalysis.Testing.Verifiers;
 
 public static class CSharpGeneratorVerifier<TSourceGenerator>
 #if ROSLYN4_0_OR_GREATER
@@ -13,20 +17,13 @@ public static class CSharpGeneratorVerifier<TSourceGenerator>
     where TSourceGenerator : ISourceGenerator, new()
 #endif
 {
-#if ROSLYN4_0_OR_GREATER
-    public class Test : CSharpIncrementalGeneratorTest<TSourceGenerator, XUnitVerifier>
-#else
-    public class Test : CSharpSourceGeneratorTest<TSourceGenerator, XUnitVerifier>
-#endif
+    public class Test : CSharpSourceGeneratorTest<EmptySourceGeneratorProvider, DefaultVerifier>
     {
         public Test()
         {
-            ReferenceAssemblies = ReferenceAssemblies.Net.Net50;
-            TestState.AdditionalReferences.Add(typeof(System.ServiceModel.ServiceContractAttribute).Assembly);
+            ReferenceAssemblies = ReferenceAssembliesHelper.Default.Value;
             TestState.AdditionalReferences.Add(typeof(CoreWCF.ServiceContractAttribute).Assembly);
-            TestState.AdditionalReferences.Add(typeof(Microsoft.Extensions.DependencyInjection.IServiceScope).Assembly);
-            TestState.AdditionalReferences.Add(typeof(Microsoft.AspNetCore.Http.HttpContext).Assembly);
-            TestState.AdditionalReferences.Add(typeof(Microsoft.AspNetCore.Mvc.FromServicesAttribute).Assembly);
+            TestState.AdditionalReferences.Add(typeof(CoreWCF.OpenApi.Attributes.OpenApiResponseAttribute).Assembly);
         }
 
         protected override CompilationOptions CreateCompilationOptions()
@@ -51,5 +48,11 @@ public static class CSharpGeneratorVerifier<TSourceGenerator>
             => ((CSharpParseOptions)base.CreateParseOptions()).WithLanguageVersion(LanguageVersion);
 
         protected override bool IsCompilerDiagnosticIncluded(Diagnostic diagnostic, CompilerDiagnostics compilerDiagnostics) => false;
+
+        protected override IEnumerable<Type> GetSourceGenerators()
+        {
+            yield return typeof(TSourceGenerator); //new TSourceGenerator().AsSourceGenerator();
+        }
     }
 }
+
