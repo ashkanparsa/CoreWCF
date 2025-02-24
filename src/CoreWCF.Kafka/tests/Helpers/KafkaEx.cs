@@ -4,23 +4,22 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using Confluent.Kafka;
 using Confluent.Kafka.Admin;
-using Xunit;
 using Xunit.Abstractions;
 
 namespace CoreWCF.Kafka.Tests.Helpers;
 
 internal static class KafkaEx
 {
+    private static readonly string s_brokerContainerName = "broker";
     private static Lazy<IAdminClient> AdminClient => new(() => new AdminClientBuilder(new AdminClientConfig { BootstrapServers = "localhost:9092" }).Build());
 
     public static async Task CreateTopicAsync(ITestOutputHelper output, string name)
     {
         output.WriteLine($"Create topic {name}");
-        await AdminClient.Value.CreateTopicsAsync(new[] { new TopicSpecification() { Name = name } }, new CreateTopicsOptions()
+        await AdminClient.Value.CreateTopicsAsync(new[] { new TopicSpecification() { Name = name, NumPartitions = 4 } }, new CreateTopicsOptions()
         {
             OperationTimeout = TimeSpan.FromSeconds(30)
         });
@@ -58,14 +57,25 @@ internal static class KafkaEx
         foreach (var tpo in tpos)
         {
             WatermarkOffsets watermarkOffsets = consumer.QueryWatermarkOffsets(tpo.TopicPartition, TimeSpan.FromSeconds(30));
-            long committed = tpo.Offset.Value;
-            if (committed == Offset.Unset)
-            {
-                throw new NotSupportedException(
-                    $"Invalid offset, no message of this partition have been consumed by the consumer '{consumerGroup}'");
-            }
+            long committed;
+
             long logEndOffset = watermarkOffsets.High.Value;
-            lag += logEndOffset - committed;
+
+            if (tpo.Offset != Offset.Beginning && tpo.Offset != Offset.End && tpo.Offset != Offset.Stored && tpo.Offset != Offset.Unset)
+            {
+                committed = tpo.Offset.Value;
+                lag += logEndOffset - committed;
+                continue;
+            }
+
+            if (tpo.Offset == Offset.Unset)
+            {
+                var partitionLag = watermarkOffsets.High.Value - watermarkOffsets.Low.Value;
+                lag += partitionLag;
+                continue;
+            }
+
+            throw new NotSupportedException("Offset type not supported");
         }
 
         output.WriteLine($"{consumerGroup} has a lag of {lag} messages on topic {topicName}");
@@ -103,5 +113,19 @@ internal static class KafkaEx
 
         output.WriteLine($"{messageCount} messages found in topic {topicName}");
         return messageCount;
+    }
+
+    public static async Task PauseAsync(ITestOutputHelper output)
+    {
+        output.WriteLine($"Pausing container {s_brokerContainerName}");
+        await DockerEx.PauseAsync(s_brokerContainerName);
+        output.WriteLine($"Container {s_brokerContainerName} paused");
+    }
+
+    public static async Task UnpauseAsync(ITestOutputHelper output)
+    {
+        output.WriteLine($"Unpausing container {s_brokerContainerName}");
+        await DockerEx.UnpauseAsync(s_brokerContainerName);
+        output.WriteLine($"Container {s_brokerContainerName} unpaused");
     }
 }

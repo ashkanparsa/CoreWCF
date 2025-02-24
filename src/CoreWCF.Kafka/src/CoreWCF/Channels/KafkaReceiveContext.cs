@@ -10,10 +10,10 @@ namespace CoreWCF.Channels;
 
 internal class KafkaReceiveContext : ReceiveContext
 {
-    private readonly ConsumeResult<Null, byte[]> _consumeResult;
+    private readonly ConsumeResult<byte[], byte[]> _consumeResult;
     private readonly KafkaTransportPump _kafkaTransportPump;
 
-    public KafkaReceiveContext(ConsumeResult<Null, byte[]> consumeResult, KafkaTransportPump kafkaTransportPump)
+    public KafkaReceiveContext(ConsumeResult<byte[], byte[]> consumeResult, KafkaTransportPump kafkaTransportPump)
     {
         _consumeResult = consumeResult;
         _kafkaTransportPump = kafkaTransportPump;
@@ -31,14 +31,7 @@ internal class KafkaReceiveContext : ReceiveContext
 
             if (_kafkaTransportPump.TransportBindingElement.DeliverySemantics == KafkaDeliverySemantics.AtLeastOnce)
             {
-                if (_kafkaTransportPump.ConsumerConfig.EnableAutoCommit == false)
-                {
-                    _kafkaTransportPump.Consumer.Commit(_consumeResult);
-                }
-                else if (_kafkaTransportPump.ConsumerConfig.EnableAutoOffsetStore == false)
-                {
-                    _kafkaTransportPump.Consumer.StoreOffset(_consumeResult);
-                }
+                _kafkaTransportPump.OffsetTracker.MarkAsProcessed(_consumeResult);
             }
         }
         finally
@@ -53,14 +46,7 @@ internal class KafkaReceiveContext : ReceiveContext
         {
             if (_kafkaTransportPump.TransportBindingElement.DeliverySemantics == KafkaDeliverySemantics.AtLeastOnce)
             {
-                if (_kafkaTransportPump.ConsumerConfig.EnableAutoCommit == false)
-                {
-                    _kafkaTransportPump.Consumer.Commit(_consumeResult);
-                }
-                else if (_kafkaTransportPump.ConsumerConfig.EnableAutoOffsetStore == false)
-                {
-                    _kafkaTransportPump.Consumer.StoreOffset(_consumeResult);
-                }
+                _kafkaTransportPump.OffsetTracker.MarkAsProcessed(_consumeResult);
             }
         }
         finally

@@ -7,26 +7,24 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
-namespace CoreWCF.BuildTools
-{
-    public sealed partial class OperationParameterInjectionGenerator
-    {
-        private sealed class Parser
-        {
-            private readonly Compilation _compilation;
-            private readonly OperationParameterInjectionSourceGenerationContext _context;
-            private readonly INamedTypeSymbol? _sSMOperationContractSymbol;
-            private readonly INamedTypeSymbol? _coreWCFOperationContractSymbol;
-            private readonly INamedTypeSymbol? _httpContextSymbol;
-            private readonly INamedTypeSymbol? _httpRequestSymbol;
-            private readonly INamedTypeSymbol? _httpResponseSymbol;
-            private readonly INamedTypeSymbol? _sSMServiceContractSymbol;
-            private readonly INamedTypeSymbol? _coreWCFServiceContractSymbol;
-            private readonly INamedTypeSymbol? _coreWCFInjectedSymbol;
-            private readonly INamedTypeSymbol? _mvcFromServicesSymbol;
+namespace CoreWCF.BuildTools;
 
-            public Parser(Compilation compilation, in OperationParameterInjectionSourceGenerationContext context)
-            {
+public sealed partial class OperationParameterInjectionGenerator
+{
+    private sealed class Parser
+    {
+        private readonly Compilation _compilation;
+        private readonly OperationParameterInjectionSourceGenerationContext _context;
+        private readonly INamedTypeSymbol? _sSMOperationContractSymbol;
+        private readonly INamedTypeSymbol? _coreWCFOperationContractSymbol;
+        private readonly INamedTypeSymbol? _httpContextSymbol;
+        private readonly INamedTypeSymbol? _httpRequestSymbol;
+        private readonly INamedTypeSymbol? _httpResponseSymbol;
+        private readonly INamedTypeSymbol? _sSMServiceContractSymbol;
+        private readonly INamedTypeSymbol? _coreWCFServiceContractSymbol;
+
+        public Parser(Compilation compilation, in OperationParameterInjectionSourceGenerationContext context)
+        {
                 _compilation = compilation;
                 _context = context;
 
@@ -37,12 +35,10 @@ namespace CoreWCF.BuildTools
                 _httpContextSymbol = _compilation.GetTypeByMetadataName("Microsoft.AspNetCore.Http.HttpContext");
                 _httpRequestSymbol = _compilation.GetTypeByMetadataName("Microsoft.AspNetCore.Http.HttpRequest");
                 _httpResponseSymbol = _compilation.GetTypeByMetadataName("Microsoft.AspNetCore.Http.HttpResponse");
-                _coreWCFInjectedSymbol = _compilation.GetTypeByMetadataName("CoreWCF.InjectedAttribute");
-                _mvcFromServicesSymbol = _compilation.GetTypeByMetadataName("Microsoft.AspNetCore.Mvc.FromServicesAttribute");
             }
 
-            public SourceGenerationSpec GetGenerationSpec(ImmutableArray<MethodDeclarationSyntax> methodDeclarationSyntaxes)
-            {
+        public SourceGenerationSpec GetGenerationSpec(ImmutableArray<MethodDeclarationSyntax> methodDeclarationSyntaxes)
+        {
                 ImmutableArray<IMethodSymbol> methods = (from methodDeclarationSyntax in methodDeclarationSyntaxes
                     let semanticModel = _compilation.GetSemanticModel(methodDeclarationSyntax.SyntaxTree)
                     let symbol = semanticModel.GetDeclaredSymbol(methodDeclarationSyntax)
@@ -102,16 +98,18 @@ namespace CoreWCF.BuildTools
                     _compilation.GetTypeByMetadataName("System.Threading.Tasks.Task"),
                     _compilation.GetTypeByMetadataName("System.Threading.Tasks.Task`1"),
                     _compilation.GetTypeByMetadataName("CoreWCF.InjectedAttribute"),
-                    _compilation.GetTypeByMetadataName("Microsoft.AspNetCore.Mvc.FromServicesAttribute"));
+                    _compilation.GetTypeByMetadataName("Microsoft.AspNetCore.Mvc.FromServicesAttribute"),
+                    _compilation.GetTypeByMetadataName("Microsoft.Extensions.DependencyInjection.FromKeyedServicesAttribute")
+                );
             }
 
-            internal static bool IsSyntaxTargetForGeneration(SyntaxNode node) => node is MethodDeclarationSyntax methodDeclarationSyntax
-                && methodDeclarationSyntax.ParameterList.Parameters.Count > 0
-                && methodDeclarationSyntax.ParameterList.Parameters.Any(static p => p.AttributeLists.Count > 0)
-                && (methodDeclarationSyntax.Body != null || methodDeclarationSyntax.ExpressionBody != null);
+        internal static bool IsSyntaxTargetForGeneration(SyntaxNode node) => node is MethodDeclarationSyntax methodDeclarationSyntax
+                 && methodDeclarationSyntax.ParameterList.Parameters.Count > 0
+                 && methodDeclarationSyntax.ParameterList.Parameters.Any(static p => p.AttributeLists.Count > 0)
+                 && (methodDeclarationSyntax.Body != null || methodDeclarationSyntax.ExpressionBody != null);
 
-            internal static MethodDeclarationSyntax? GetSemanticTargetForGeneration(GeneratorSyntaxContext context)
-            {
+        internal static MethodDeclarationSyntax? GetSemanticTargetForGeneration(GeneratorSyntaxContext context)
+        {
                 var methodDeclarationSyntax = (MethodDeclarationSyntax)context.Node;
                 foreach (var parameterSyntax in methodDeclarationSyntax.ParameterList.Parameters)
                 {
@@ -128,7 +126,9 @@ namespace CoreWCF.BuildTools
                             INamedTypeSymbol attributeContainingTypeSymbol = attributeSymbol.ContainingType;
                             string fullName = attributeContainingTypeSymbol.ToDisplayString();
 
-                            if (fullName == "Microsoft.AspNetCore.Mvc.FromServicesAttribute" || fullName == "CoreWCF.InjectedAttribute")
+                            if (fullName is "Microsoft.AspNetCore.Mvc.FromServicesAttribute"
+                                or "CoreWCF.InjectedAttribute"
+                                or "Microsoft.Extensions.DependencyInjection.FromKeyedServicesAttribute")
                             {
                                 return methodDeclarationSyntax;
                             }
@@ -138,6 +138,5 @@ namespace CoreWCF.BuildTools
 
                 return null;
             }
-        }
     }
 }

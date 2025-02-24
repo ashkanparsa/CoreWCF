@@ -18,7 +18,7 @@ namespace CoreWCF.Queue.Common
         private Message _requestMessage;
         private Exception _requestMessageException;
         private ReceiveContext _receiveContext;
-        private readonly Lazy<IDictionary<string, object>> _properties = new();
+        private readonly Lazy<Dictionary<string, object>> _properties = new();
 
         public override Message RequestMessage
         {
@@ -50,6 +50,11 @@ namespace CoreWCF.Queue.Common
             }
         }
 
+        protected virtual void OnRequestMessageSet(Message message)
+        {
+
+        }
+
         internal void SetRequestMessage(Message requestMessage)
         {
             Fx.Assert(_requestMessageException == null, "Cannot have both a requestMessage and a requestException.");
@@ -60,6 +65,7 @@ namespace CoreWCF.Queue.Common
             }
 
             _requestMessage = requestMessage;
+            OnRequestMessageSet(_requestMessage);
         }
 
         internal void SetRequestMessage(Exception requestMessageException)

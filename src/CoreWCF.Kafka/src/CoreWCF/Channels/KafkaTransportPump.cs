@@ -3,7 +3,10 @@
 
 using System;
 using System.Buffers;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO.Pipelines;
+using System.Net;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,24 +22,26 @@ internal sealed class KafkaTransportPump : QueueTransportPump, IDisposable
 {
     private readonly ILogger<KafkaTransportPump> _logger;
     private readonly KafkaDeliverySemantics _kafkaDeliverySemantics;
-    internal IConsumer<Null, byte[]> Consumer { get; private set; }
-    internal ConsumerConfig ConsumerConfig { get; private set; }
+    private IConsumer<byte[], byte[]> Consumer { get; set; }
+    private ConsumerConfig ConsumerConfig { get; set; }
     internal IProducer<Null, byte[]> Producer { get; private set; }
-    internal string Topic { get; }
+    private string Topic { get; }
     internal KafkaTransportBindingElement TransportBindingElement { get; }
     private CountdownEvent _receiveContextCountdownEvent;
-    private object _disposeLock = new();
+    private readonly object _disposeLock = new();
     private readonly Uri _baseAddress;
     private CancellationTokenSource _cts;
     private AsyncManualResetEvent _mres;
     private bool _isStarted;
-    private TimeSpan _closeTimeout;
+    private bool _isRegexSubscription;
+    private readonly TimeSpan _closeTimeout;
+    internal TopicPartitionOffsetTracker OffsetTracker { get; private set; }
 
     private static readonly (bool? EnableAutoCommit, bool? EnableAutoOffsetStore) s_atMostOnceConfigValues = (false, null);
     private static readonly (bool? EnableAutoCommit, bool? EnableAutoOffsetStore) s_atLeastOncePerMessageCommitConfigValues = (false, null);
     private static readonly (bool? EnableAutoCommit, bool? EnableAutoOffsetStore) s_atLeastOnceBatchCommitConfigValues = (true, false);
     private static readonly Regex s_topicNameRegex =
-        new(@"^[a-zA-Z0-9\.\-_]{1,255}$", RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+        new(@"^[a-zA-Z0-9\.\-_\*\^]{1,255}$", RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
 
     public KafkaTransportPump(KafkaTransportBindingElement transportBindingElement,
         ILogger<KafkaTransportPump> logger,
@@ -44,7 +49,9 @@ internal sealed class KafkaTransportPump : QueueTransportPump, IDisposable
     {
         _logger = logger;
         _kafkaDeliverySemantics = kafkaDeliverySemantics;
-        Topic = serviceDispatcher.BaseAddress.PathAndQuery.TrimStart('/');
+        Topic = WebUtility.UrlDecode(serviceDispatcher.BaseAddress.PathAndQuery.TrimStart('/'));
+        _isRegexSubscription = Topic.StartsWith("^");
+
         if (string.IsNullOrEmpty(Topic) || !s_topicNameRegex.IsMatch(Topic))
         {
             throw new NotSupportedException(string.Format(SR.InvalidTopicName, Topic));
@@ -69,7 +76,7 @@ internal sealed class KafkaTransportPump : QueueTransportPump, IDisposable
 
     public override Task StartPumpAsync(QueueTransportContext queueTransportContext, CancellationToken token)
     {
-        _cts = CancellationTokenSource.CreateLinkedTokenSource(token);;
+        _cts = CancellationTokenSource.CreateLinkedTokenSource(token);
         _mres = new();
         _mres.Reset();
         _receiveContextCountdownEvent = new(1);
@@ -85,12 +92,15 @@ internal sealed class KafkaTransportPump : QueueTransportPump, IDisposable
         var (enableAutoCommit, enableAutoOffsetStore) = GetCommitStrategyConfigValues(ConsumerConfig, _kafkaDeliverySemantics);
         ConsumerConfig.EnableAutoCommit = enableAutoCommit;
         ConsumerConfig.EnableAutoOffsetStore = enableAutoOffsetStore;
-        Consumer = new ConsumerBuilder<Null, byte[]>(ConsumerConfig)
-            .SetKeyDeserializer(Deserializers.Null)
+        Consumer = new ConsumerBuilder<byte[], byte[]>(ConsumerConfig)
+            .SetKeyDeserializer(Deserializers.ByteArray)
             .SetValueDeserializer(Deserializers.ByteArray)
             .SetLogHandler(OnLog)
             .SetErrorHandler(OnError)
             .Build();
+        OffsetTracker = _kafkaDeliverySemantics == KafkaDeliverySemantics.AtLeastOnce
+            ? new TopicPartitionOffsetTracker(Consumer, ConsumerConfig, _logger)
+            : null;
 
         Consumer.Subscribe(Topic);
 
@@ -125,6 +135,10 @@ internal sealed class KafkaTransportPump : QueueTransportPump, IDisposable
                     if (_kafkaDeliverySemantics == KafkaDeliverySemantics.AtMostOnce)
                     {
                         Consumer.Commit(consumeResult);
+                    }
+                    else if (_kafkaDeliverySemantics == KafkaDeliverySemantics.AtLeastOnce)
+                    {
+                        OffsetTracker.Received(consumeResult);
                     }
 
                     await OnConsumeMessage(consumeResult, queueTransportContext);
@@ -165,6 +179,15 @@ internal sealed class KafkaTransportPump : QueueTransportPump, IDisposable
         _cts.Cancel();
         await _mres.WaitAsync(token);
         _cts.Dispose();
+
+        if (ConsumerConfig.EnableAutoCommit == true)
+        {
+            // When EnableAutoCommit is true, offset are either manually stored locally or automatically (if EnableAutoOffsetStore is true).
+            // Then a background librdkafka thread will commit them at AutoCommitIntervalMs frequency which defaults to 5000ms
+            // Thus we should give AutoCommitIntervalMs time before closing the consumer
+            await Task.Delay(TimeSpan.FromMilliseconds(ConsumerConfig.AutoCommitIntervalMs ?? 5000));
+        }
+
         _receiveContextCountdownEvent.Signal();
         using CancellationTokenSource closeCts = new (_closeTimeout);
         try
@@ -182,6 +205,7 @@ internal sealed class KafkaTransportPump : QueueTransportPump, IDisposable
         {
             Producer.Flush(closeCts.Token);
         }
+
         Consumer.Close();
     }
 
@@ -198,7 +222,7 @@ internal sealed class KafkaTransportPump : QueueTransportPump, IDisposable
             _ => throw new NotSupportedException(string.Format(SR.InvalidKafkaConfiguration, kafkaDeliverySemantics, consumerConfig.EnableAutoCommit, consumerConfig.EnableAutoOffsetStore))
         };
 
-    private void OnLog(IConsumer<Null, byte[]> consumer, LogMessage logMessage)
+    private void OnLog(IConsumer<byte[], byte[]> consumer, LogMessage logMessage)
     {
         const string format = "{0}:{1}";
         switch (logMessage.Level)
@@ -226,7 +250,7 @@ internal sealed class KafkaTransportPump : QueueTransportPump, IDisposable
         }
     }
 
-    private void OnError(IConsumer<Null, byte[]> consumer, Error error)
+    private void OnError(IConsumer<byte[], byte[]> consumer, Error error)
     {
         if (error.IsFatal)
         {
@@ -234,19 +258,24 @@ internal sealed class KafkaTransportPump : QueueTransportPump, IDisposable
         }
     }
 
-    private Task OnConsumeMessage(ConsumeResult<Null, byte[]> consumeResult,
+    private Task OnConsumeMessage(ConsumeResult<byte[], byte[]> consumeResult,
         QueueTransportContext queueTransportContext)
     {
         var receiveContext = new KafkaReceiveContext(consumeResult, this);
-        var context = new QueueMessageContext
+        var context = new KafkaMessageContext
         {
-            QueueMessageReader = PipeReader.Create(new ReadOnlySequence<byte>(consumeResult.Message.Value)),
-            LocalAddress = new EndpointAddress(queueTransportContext.ServiceDispatcher.BaseAddress),
+            IsRegexSubscription = _isRegexSubscription,
+            ReceiveContext = receiveContext,
             QueueTransportContext = queueTransportContext,
-            ReceiveContext = receiveContext
+            LocalAddress = new EndpointAddress(queueTransportContext.ServiceDispatcher.BaseAddress),
+            QueueMessageReader = PipeReader.Create(new ReadOnlySequence<byte>(consumeResult.Message.Value)),
+            Properties =
+            {
+                [KafkaMessageProperty.Name] = new KafkaMessageProperty(consumeResult)
+            }
         };
 
-        return queueTransportContext.QueueMessageDispatcher(context);;
+        return queueTransportContext.QueueMessageDispatcher(context);
     }
 
     internal void IncrementReceiveContextCount()
@@ -272,6 +301,74 @@ internal sealed class KafkaTransportPump : QueueTransportPump, IDisposable
             Consumer = null;
             _cts?.Dispose();
             _mres?.Dispose();
+        }
+    }
+
+    internal class TopicPartitionOffsetTracker
+    {
+        private readonly ConcurrentDictionary<TopicPartition, SortedList<ConsumeResult<byte[], byte[]>, bool>> _topicPartitions = new();
+        private readonly IConsumer<byte[], byte[]> _consumer;
+        private readonly ConsumerConfig _config;
+        private readonly ILogger<KafkaTransportPump> _logger;
+
+        public TopicPartitionOffsetTracker(IConsumer<byte[], byte[]> consumer, ConsumerConfig config, ILogger<KafkaTransportPump> logger)
+        {
+            _consumer = consumer;
+            _config = config;
+            _logger = logger;
+        }
+
+        public void Received(ConsumeResult<byte[], byte[]> consumeResult)
+        {
+            SortedList<ConsumeResult<byte[], byte[]>, bool> sortedList =
+                _topicPartitions.GetOrAdd(consumeResult.TopicPartition, new SortedList<ConsumeResult<byte[], byte[]>, bool>(ConsumeResultComparer.Default));
+            lock (sortedList)
+            {
+                sortedList.Add(consumeResult, false);
+            }
+        }
+
+        public void MarkAsProcessed(ConsumeResult<byte[], byte[]> consumeResult)
+        {
+            ConsumeResult<byte[], byte[]> highestConsumeResult = null;
+            SortedList<ConsumeResult<byte[], byte[]>, bool> sortedList = _topicPartitions[consumeResult.TopicPartition];
+            lock (sortedList)
+            {
+                sortedList[consumeResult] = true;
+                while (sortedList.Count > 0 && sortedList.Values[0])
+                {
+                    ConsumeResult<byte[], byte[]> first = sortedList.Keys[0];
+                    highestConsumeResult = first;
+                    sortedList.RemoveAt(0);
+                }
+
+                if (highestConsumeResult != null)
+                {
+                    if (_config.EnableAutoCommit == false)
+                    {
+                        _consumer.Commit(highestConsumeResult);
+                        _logger.LogDebug("Commit {topicPartitionOffset}",
+                            highestConsumeResult.TopicPartitionOffset);
+                    }
+                    else if (_config.EnableAutoOffsetStore == false)
+                    {
+                        _consumer.StoreOffset(highestConsumeResult);
+                        _logger.LogDebug("StoreOffsets {topicPartitionOffset}",
+                            highestConsumeResult.TopicPartitionOffset);
+                    }
+                }
+            }
+        }
+
+        private class ConsumeResultComparer : IComparer<ConsumeResult<byte[], byte[]>>
+        {
+            public static ConsumeResultComparer Default { get; } = new();
+
+            public int Compare(ConsumeResult<byte[], byte[]> x, ConsumeResult<byte[], byte[]> y)
+            {
+                Fx.AssertAndThrow(x.TopicPartition == y.TopicPartition, "ConsumeResult instances must be from the same TopicPartition");
+                return x.Offset.Value.CompareTo(y.Offset.Value);
+            }
         }
     }
 }

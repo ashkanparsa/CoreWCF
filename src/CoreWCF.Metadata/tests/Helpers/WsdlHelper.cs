@@ -24,7 +24,7 @@ namespace CoreWCF.Metadata.Tests.Helpers
             var singleWsdlPath = serviceMetadataPath + "?singleWsdl";
             string generatedWsdlTxt = string.Empty;
             // As a new ASP.NET Core service is started for each test, there's no benefit from
-            // cachine an HttpClient instance as idle sockets will be closed.
+            // cachine an HttpClient instance as a new port will be used and idle sockets will be closed.
             var httpClientHandler = new HttpClientHandler();
             httpClientHandler.ServerCertificateCustomValidationCallback = (request, certificate, chain, errors) => true;
             using (var client = new HttpClient(httpClientHandler))
@@ -44,7 +44,7 @@ namespace CoreWCF.Metadata.Tests.Helpers
                 var classXmlFileName = Path.Combine("Wsdls", Path.GetFileNameWithoutExtension(sourceFilePath) + ".xml");
                 if (!File.Exists(classXmlFileName))
                 {
-                    Assert.True(false, $"Unable to find expected wsdl file at {xmlFileName} or {classXmlFileName}");
+                    Assert.Fail($"Unable to find expected wsdl file at {xmlFileName} or {classXmlFileName}");
                 }
 
                 xmlFileName = classXmlFileName;
@@ -68,8 +68,6 @@ namespace CoreWCF.Metadata.Tests.Helpers
         {
             var serviceBaseAddress = serviceBaseAddresses.Where(uri => uri.Scheme == Uri.UriSchemeHttp).Single();
             var singleWsdlUriBuilder = new UriBuilder(serviceBaseAddress);
-            singleWsdlUriBuilder.Host = serviceBaseAddress.Host;
-            singleWsdlUriBuilder.Port = serviceBaseAddress.Port;
             singleWsdlUriBuilder.Query = "singleWsdl";
             var singleWsdlPath = singleWsdlUriBuilder.ToString();
             string generatedWsdlTxt = string.Empty;
@@ -90,7 +88,7 @@ namespace CoreWCF.Metadata.Tests.Helpers
                 var classXmlFileName = Path.Combine("Wsdls", Path.GetFileNameWithoutExtension(sourceFilePath) + ".xml");
                 if (!File.Exists(classXmlFileName))
                 {
-                    Assert.True(false, $"Unable to find expected wsdl file at {xmlFileName} or {classXmlFileName}");
+                    Assert.Fail($"Unable to find expected wsdl file at {xmlFileName} or {classXmlFileName}");
                 }
 
                 xmlFileName = classXmlFileName;
@@ -133,7 +131,7 @@ namespace CoreWCF.Metadata.Tests.Helpers
                 Assert.True(nav.MoveToAttribute("location", ""));
                 if (!Uri.TryCreate(nav.Value, UriKind.Absolute, out Uri servicePathUri))
                 {
-                    Assert.False(true, $"Unable to parse location uri {nav.Value} as Uri");
+                    Assert.Fail($"Unable to parse location uri {nav.Value} as Uri");
                 }
 
                 bool validServiceAddress = false;
@@ -159,7 +157,7 @@ namespace CoreWCF.Metadata.Tests.Helpers
                 {
                     if (!Uri.TryCreate(nav.Value, UriKind.Absolute, out Uri servicePathUri))
                     {
-                        Assert.False(true, $"Unable to parse location uri {nav.Value} as Uri");
+                        Assert.Fail($"Unable to parse location uri {nav.Value} as Uri");
                     }
 
                     bool validServiceAddress = false;

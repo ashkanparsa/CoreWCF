@@ -9,12 +9,16 @@ namespace CoreWCF.Dispatcher
 {
     internal class DependencyInjectionWithLegacyFallbackInstanceProvider : IInstanceProvider
     {
-        private class ScopedServiceProviderExtension : IExtension<InstanceContext>, IServiceProvider, IDisposable
+        private class ScopedServiceProviderExtension : IExtension<InstanceContext>, IKeyedServiceProvider, IDisposable
         {
             private readonly IServiceScope _serviceScope;
+            private IKeyedServiceProvider KeyedServiceProvider { get; }
 
             public ScopedServiceProviderExtension(IServiceProvider serviceProvider)
-                => _serviceScope = serviceProvider.CreateScope();
+            {
+                _serviceScope = serviceProvider.CreateScope();
+                KeyedServiceProvider = _serviceScope.ServiceProvider as IKeyedServiceProvider;
+            }
 
             public void Attach(InstanceContext owner)
             {
@@ -29,12 +33,17 @@ namespace CoreWCF.Dispatcher
             public object GetService(Type serviceType) => _serviceScope.ServiceProvider.GetService(serviceType);
 
             public void Dispose() => _serviceScope?.Dispose();
+
+            public object GetKeyedService(Type serviceType, object serviceKey) => KeyedServiceProvider.GetKeyedService(serviceType, serviceKey);
+
+            public object GetRequiredKeyedService(Type serviceType, object serviceKey) => KeyedServiceProvider.GetRequiredKeyedService(serviceType, serviceKey);
         }
 
         private delegate object GetInstanceDelegate(InstanceContext instanceContext);
         private delegate void ReleaseInstanceDelegate(InstanceContext instanceContext, object instance);
 
         private readonly IServiceProvider _serviceProvider;
+        private readonly IServiceProviderIsService _serviceProviderIsService;
         private readonly Type _serviceType;
         private GetInstanceDelegate _getInstanceDelegate;
         private ReleaseInstanceDelegate _releaseInstanceDelegate;
@@ -43,6 +52,8 @@ namespace CoreWCF.Dispatcher
         {
             _serviceProvider = serviceProvider ?? throw DiagnosticUtility.ExceptionUtility.ThrowHelperArgumentNull(nameof(serviceProvider));
             _serviceType = serviceType ?? throw DiagnosticUtility.ExceptionUtility.ThrowHelperArgumentNull(nameof(serviceType));
+
+            _serviceProviderIsService = _serviceProvider.GetRequiredService<IServiceProviderIsService>();
             _getInstanceDelegate = GetInstanceFromDIWithLegacyFallback;
             // Defaults to ReleaseInstanceLegacy
             _releaseInstanceDelegate = ReleaseInstanceLegacy;
@@ -69,14 +80,17 @@ namespace CoreWCF.Dispatcher
 
         private object GetInstanceFromDIWithLegacyFallback(InstanceContext instanceContext)
         {
-            if(TryGetInstanceFromDI(instanceContext, out object instance))
+            if (_serviceProviderIsService.IsService(_serviceType))
             {
+                var extension = new ScopedServiceProviderExtension(_serviceProvider);
+                instanceContext.Extensions.Add(extension);
+
                 // Overwrite _getInstanceDelegate so subsequent calls pull instance from ServiceScope
                 _getInstanceDelegate = GetInstanceFromDI;
                 // Overwrite _releaseInstanceDelegate so subsequent calls release the ServiceScope and thus instance pulled from it.
                 _releaseInstanceDelegate = ReleaseServiceScope;
 
-                return instance;
+                return extension.GetService(_serviceType);
             }
 
             if (InvokerUtil.HasDefaultConstructor(_serviceType))
@@ -90,25 +104,6 @@ namespace CoreWCF.Dispatcher
             }
 
             return _getInstanceDelegate(instanceContext);
-        }
-
-        private bool TryGetInstanceFromDI(InstanceContext instanceContext, out object instance)
-        {
-            var extension = new ScopedServiceProviderExtension(_serviceProvider);
-            instance = extension.GetService(_serviceType);
-            bool isServiceFoundInDI = instance != null;
-            if (isServiceFoundInDI)
-            {
-                // Attach the ServiceScope used to probe DI to the current InstanceContext
-                instanceContext.Extensions.Add(extension);
-            }
-            else
-            {
-                // immediately Dispose the ServiceScope used to probe DI
-                extension.Dispose();
-            }
-
-            return isServiceFoundInDI;
         }
 
         private object GetInstanceFromDI(InstanceContext instanceContext)
